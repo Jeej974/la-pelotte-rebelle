@@ -22,15 +22,16 @@ size = Vector3(2.53296, 6.51782, 8.76941)
 
 [node name="Camerafollow" type="Node3D" parent="."]
 script = ExtResource("1_jka67")
+target_path = NodePath("../Pelote/CollisionShape3D")
 
 [node name="SpringArm3D" type="SpringArm3D" parent="Camerafollow"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.704157, 32.1227, 30.5466)
 shape = SubResource("BoxShape3D_jka67")
 
 [node name="Camera3D" type="Camera3D" parent="Camerafollow/SpringArm3D"]
-transform = Transform3D(-0.0180995, 0.998602, -0.0496703, -0.225359, 0.0443255, 0.973267, 0.974108, 0.0288093, 0.224242, -3.0444, 4.70574, 1.02753)
+transform = Transform3D(-0.761872, 0.645647, 0.0518669, 0.0442395, -0.0280197, 0.998628, 0.646215, 0.763122, -0.00721577, -1.87187, 4.65717, -12.1711)
 current = true
-fov = 63.3113
+fov = 74.7
 
 [node name="Pelote" type="RigidBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.460159, 7.80543, 11.9899)
@@ -38,14 +39,6 @@ script = ExtResource("3_r3fl7")
 
 [node name="Sketchfab_Scene" parent="Pelote" instance=ExtResource("3_jka67")]
 transform = Transform3D(11.2903, 0, 0, 0, 11.2591, 0.838081, 0, -0.838081, 11.2591, -0.128186, 3.97214, 13.2133)
-
-[node name="Area3D" type="Area3D" parent="Pelote"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.4093, -4.40799, 10.1071)
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Pelote/Area3D"]
-transform = Transform3D(1, 0, 0, 0, -0.802109, -0.597177, 0, 0.597177, -0.802109, -14.5809, 8.27014, 3.31928)
-shape = SubResource("SphereShape3D_jka67")
-debug_color = Color(0.0569816, 0.0275688, 0.122401, 0.419608)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Pelote"]
 transform = Transform3D(1, 0, 0, 0, -0.802109, -0.597177, 0, 0.597177, -0.802109, -0.816607, 3.90347, 12.8593)
