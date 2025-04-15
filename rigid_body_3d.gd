@@ -2,7 +2,7 @@ extends RigidBody3D
 
 @export var speed := 10.0
 var direction := Vector3.ZERO
-
+# deplacement via les touches
 func _physics_process(delta):
 	direction = Vector3.ZERO
 
@@ -20,6 +20,6 @@ func _physics_process(delta):
 	# Appliquer une force sur X/Z seulement (pas de Y = pas de vol)
 	apply_central_force(Vector3(direction.x, 0, direction.z) * speed)
 
-
+#signal collision balle
 func _on_cat_1_body_entered(body: Node3D):
 	print("la balle est touché !!!!!!!")
