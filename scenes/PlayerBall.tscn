@@ -1,0 +1,33 @@
+[gd_scene load_steps=5 format=3 uid="uid://umwffvxyerv"]
+
+[ext_resource type="Script" uid="uid://ctm4e822m3y60" path="res://scripts/PlayerBall.cs" id="1_sty6k"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_sty6k"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sty6k"]
+albedo_color = Color(0.165656, 0.165656, 0.165656, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_d2ebr"]
+material = SubResource("StandardMaterial3D_sty6k")
+
+[node name="PlayerBall" type="RigidBody3D"]
+script = ExtResource("1_sty6k")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
+shape = SubResource("SphereShape3D_sty6k")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
+mesh = SubResource("SphereMesh_d2ebr")
+skeleton = NodePath("../..")
+
+[node name="PlayerFollowPivot" type="Node3D" parent="."]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+physics_interpolation_mode = 1
+auto_translate_mode = 2
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 5, 5)
+keep_aspect = 0
+doppler_tracking = 2
+current = true
