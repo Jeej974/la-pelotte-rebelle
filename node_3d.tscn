@@ -1,0 +1,81 @@
+[gd_scene load_steps=10 format=3 uid="uid://c4ldmj83fy3bo"]
+
+[ext_resource type="Script" uid="uid://bayyr8aqfy30l" path="res://camerafollow.gd" id="1_jka67"]
+[ext_resource type="PackedScene" uid="uid://dx1v1m2ni3gcm" path="res://cat.glb" id="2_r3fl7"]
+[ext_resource type="PackedScene" uid="uid://bbe5fgtt62vwt" path="res://yarn_ball.glb" id="3_jka67"]
+[ext_resource type="Script" uid="uid://cuvg24cle1fkf" path="res://rigid_body_3d.gd" id="3_r3fl7"]
+[ext_resource type="Script" uid="uid://ewj0vfnw2px1" path="res://cat_1.gd" id="5_jka67"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_jka67"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_jka67"]
+radius = 6.77963
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_i5arm"]
+height = 5.47565
+radius = 51.3218
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_r3fl7"]
+size = Vector3(2.53296, 6.51782, 8.76941)
+
+[node name="Node3D" type="Node3D"]
+
+[node name="Camerafollow" type="Node3D" parent="."]
+script = ExtResource("1_jka67")
+
+[node name="SpringArm3D" type="SpringArm3D" parent="Camerafollow"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.704157, 32.1227, 30.5466)
+shape = SubResource("BoxShape3D_jka67")
+
+[node name="Camera3D" type="Camera3D" parent="Camerafollow/SpringArm3D"]
+transform = Transform3D(-0.0180995, 0.998602, -0.0496703, -0.225359, 0.0443255, 0.973267, 0.974108, 0.0288093, 0.224242, -3.0444, 4.70574, 1.02753)
+current = true
+fov = 63.3113
+
+[node name="Pelote" type="RigidBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.460159, 7.80543, 11.9899)
+script = ExtResource("3_r3fl7")
+
+[node name="Sketchfab_Scene" parent="Pelote" instance=ExtResource("3_jka67")]
+transform = Transform3D(11.2903, 0, 0, 0, 11.2591, 0.838081, 0, -0.838081, 11.2591, -0.128186, 3.97214, 13.2133)
+
+[node name="Area3D" type="Area3D" parent="Pelote"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.4093, -4.40799, 10.1071)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Pelote/Area3D"]
+transform = Transform3D(1, 0, 0, 0, -0.802109, -0.597177, 0, 0.597177, -0.802109, -14.5809, 8.27014, 3.31928)
+shape = SubResource("SphereShape3D_jka67")
+debug_color = Color(0.0569816, 0.0275688, 0.122401, 0.419608)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Pelote"]
+transform = Transform3D(1, 0, 0, 0, -0.802109, -0.597177, 0, 0.597177, -0.802109, -0.816607, 3.90347, 12.8593)
+shape = SubResource("SphereShape3D_jka67")
+debug_color = Color(0.0569816, 0.0275688, 0.122401, 0.419608)
+
+[node name="Sol" type="CSGCylinder3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.39297, 0.366669, 18.37)
+radius = 51.0439
+height = 2.68994
+
+[node name="StaticBody3D" type="StaticBody3D" parent="Sol"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Sol/StaticBody3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.11911, 0)
+shape = SubResource("CylinderShape3D_i5arm")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.998448, 0.0157645, -0.0534221, 0, 0.959112, 0.283028, 0.0556995, -0.282588, 0.957623, -47.2206, 31.475, 1013.24)
+
+[node name="Cat1" type="Area3D" parent="."]
+transform = Transform3D(0.999301, 0, -0.0373937, 0, 1, 0, 0.0373937, 0, 0.999301, -24.3974, 6.856, 5.37492)
+gravity_point = true
+script = ExtResource("5_jka67")
+
+[node name="Cat model" parent="Cat1" instance=ExtResource("2_r3fl7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22.8113, -0.982483, 0.496403)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Cat1"]
+transform = Transform3D(1, 0, -7.45058e-09, 0, 1, 0, 7.45058e-09, 0, 1, 22.7538, 2.07354, 1.13232)
+shape = SubResource("BoxShape3D_r3fl7")
+
+[connection signal="body_entered" from="Cat1" to="Cat1" method="_on_body_entered"]
