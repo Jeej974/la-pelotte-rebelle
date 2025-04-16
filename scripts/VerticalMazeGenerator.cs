@@ -40,8 +40,11 @@ public partial class VerticalMazeGenerator : Node3D
 	// Point d'alignement pour tous les labyrinthes
 	private Vector2I _alignmentPoint = new Vector2I(1, 1);
 	
-	// Texture pour les murs
-	private Texture2D _wallTexture;
+	// MODIFIÉ: Liste pour stocker les textures de mur disponibles
+	private List<Texture2D> _wallTextures = new List<Texture2D>();
+	
+	// MODIFIÉ: Dictionnaire pour associer un index de labyrinthe à sa texture
+	private Dictionary<int, Texture2D> _mazeWallTextures = new Dictionary<int, Texture2D>();
 	
 	// Liste pour suivre quels labyrinthes ont été générés
 	private List<int> _generatedMazes = new List<int>();
@@ -85,8 +88,8 @@ public partial class VerticalMazeGenerator : Node3D
 		// Initialiser les tailles des labyrinthes
 		GenerateMazeSizes();
 		
-		// Charge la texture du mur
-		_wallTexture = ResourceLoader.Load<Texture2D>("res://assets/wall/wall-texture.png");
+		// MODIFIÉ: Charger toutes les textures de mur
+		LoadWallTextures();
 		
 		// Générer seulement les premiers labyrinthes au départ
 		for (int i = 0; i < INITIAL_MAZE_COUNT; i++)
@@ -104,6 +107,90 @@ public partial class VerticalMazeGenerator : Node3D
 		this.Connect("PlayerEnteredMaze", new Callable(this, nameof(OnPlayerEnteredMaze)));
 		
 		GD.Print($"VerticalMazeGenerator initialisé - {INITIAL_MAZE_COUNT} labyrinthes générés");
+	}
+	
+	// NOUVELLE MÉTHODE: Charger toutes les textures de mur
+	private void LoadWallTextures()
+	{
+		_wallTextures.Clear();
+		
+		// Charger les textures en utilisant le format correct (Asset_X.png)
+		for (int i = 1; i <= 18; i++)
+		{
+			string texturePath = $"res://assets/wall/Textures/Asset_{i}.png";
+			var texture = ResourceLoader.Load<Texture2D>(texturePath);
+			
+			if (texture != null)
+			{
+				_wallTextures.Add(texture);
+				GD.Print($"Texture de mur chargée: {texturePath}");
+			}
+			else
+			{
+				// Essayer un format alternatif au cas où
+				texturePath = $"res://assets/wall/Textures/Asset_{i}.png";
+				texture = ResourceLoader.Load<Texture2D>(texturePath);
+				
+				if (texture != null)
+				{
+					_wallTextures.Add(texture);
+					GD.Print($"Texture de mur chargée: {texturePath}");
+				}
+				else
+				{
+					GD.PrintErr($"Impossible de charger la texture de mur: {i}");
+				}
+			}
+		}
+		
+		// Si aucune texture n'a été chargée, utiliser la texture par défaut
+		if (_wallTextures.Count == 0)
+		{
+			var defaultTexture = ResourceLoader.Load<Texture2D>("res://assets/wall/wall-texture.png");
+			if (defaultTexture != null)
+			{
+				_wallTextures.Add(defaultTexture);
+				GD.Print("Utilisation de la texture de mur par défaut");
+			}
+			else
+			{
+				GD.PrintErr("Aucune texture de mur n'a pu être chargée!");
+			}
+		}
+		
+		GD.Print($"Total des textures de mur chargées: {_wallTextures.Count}");
+	}
+	
+	// NOUVELLE MÉTHODE: Sélectionner une texture aléatoire pour un labyrinthe
+	private Texture2D GetRandomWallTexture(int mazeIndex)
+	{
+		// Si nous avons déjà sélectionné une texture pour ce labyrinthe, la renvoyer
+		if (_mazeWallTextures.ContainsKey(mazeIndex))
+		{
+			return _mazeWallTextures[mazeIndex];
+		}
+		
+		// Sinon, sélectionner une texture aléatoire
+		if (_wallTextures.Count > 0)
+		{
+			// Utiliser l'index comme seed pour la génération aléatoire, mais avec une source unique
+			int tickCount = (int)(Time.GetTicksMsec() % int.MaxValue);
+			Random random = new Random(mazeIndex + tickCount);
+			int textureIndex = random.Next(0, _wallTextures.Count);
+			
+			Texture2D selectedTexture = _wallTextures[textureIndex];
+			_mazeWallTextures[mazeIndex] = selectedTexture;
+			
+			GD.Print($"Texture {textureIndex + 1} sélectionnée pour le labyrinthe {mazeIndex}");
+			
+			return selectedTexture;
+		}
+		else
+		{
+			// Cas où aucune texture n'est disponible
+			GD.PrintErr($"Aucune texture disponible pour le labyrinthe {mazeIndex}");
+			return null;
+		}
 	}
 	
 	// Initialiser la liste des tailles de labyrinthe
@@ -319,7 +406,7 @@ public partial class VerticalMazeGenerator : Node3D
 		PlaceCatsInMaze(cells, mazeGrid, size, mazeIndex, entrancePos, exitPos);
 		
 		// Construit le labyrinthe 3D
-		BuildMaze3D(mazeNode, mazeGrid, cells, size, entrancePos, exitPos);
+		BuildMaze3D(mazeNode, mazeGrid, cells, size, entrancePos, exitPos, mazeIndex);
 		
 		// Ajoute une étiquette pour le labyrinthe
 		AddMazeLabel(mazeNode, mazeIndex, size);
@@ -327,8 +414,8 @@ public partial class VerticalMazeGenerator : Node3D
 		// Création des zones de téléportation
 		CreateTeleportZones(mazeNode, mazeIndex, size, entrancePos, exitPos);
 		
-		// Ajouter un mur à l'entrée de tous les labyrinthes (MODIFICATION: plus seulement le premier labyrinthe)
-		AddEntranceWall(mazeNode, size, entrancePos);
+		// Ajouter un mur à l'entrée de tous les labyrinthes
+		AddEntranceWall(mazeNode, size, entrancePos, mazeIndex);
 		
 		return mazeNode;
 	}
@@ -436,7 +523,8 @@ public partial class VerticalMazeGenerator : Node3D
 		return new Vector2I(entrance.X, size - 1);
 	}
 	
-	private void BuildMaze3D(Node3D mazeNode, CellWall[,] grid, MazeCell[][] cells, int size, Vector2I entrance, Vector2I exit)
+	// MODIFIÉ: Ajout du paramètre mazeIndex
+	private void BuildMaze3D(Node3D mazeNode, CellWall[,] grid, MazeCell[][] cells, int size, Vector2I entrance, Vector2I exit, int mazeIndex)
 	{
 		// Crée le sol
 		CreateFloor(mazeNode, size);
@@ -450,16 +538,16 @@ public partial class VerticalMazeGenerator : Node3D
 				
 				// Crée les murs pour cette cellule
 				if ((cell & CellWall.Up) != 0)
-					CreateWallSegment(mazeNode, x, y, true, false);
+					CreateWallSegment(mazeNode, x, y, true, false, mazeIndex);
 				
 				if ((cell & CellWall.Right) != 0)
-					CreateWallSegment(mazeNode, x, y, false, true);
+					CreateWallSegment(mazeNode, x, y, false, true, mazeIndex);
 				
 				if ((cell & CellWall.Down) != 0)
-					CreateWallSegment(mazeNode, x, y, true, true);
+					CreateWallSegment(mazeNode, x, y, true, true, mazeIndex);
 				
 				if ((cell & CellWall.Left) != 0)
-					CreateWallSegment(mazeNode, x, y, false, false);
+					CreateWallSegment(mazeNode, x, y, false, false, mazeIndex);
 				
 				// Placer un chat si la cellule en contient un
 				if (cells[x][y].HasCat)
@@ -474,7 +562,7 @@ public partial class VerticalMazeGenerator : Node3D
 		CreateMarker(mazeNode, exit.X, exit.Y, new Color(1, 0, 0)); // Rouge pour la sortie
 		
 		// Ajoute des murs autour du périmètre du labyrinthe
-		AddPerimeterWalls(mazeNode, size, entrance, exit);
+		AddPerimeterWalls(mazeNode, size, entrance, exit, mazeIndex);
 	}
 	
 	// Nouvelle méthode pour créer un chat dans le labyrinthe
@@ -516,16 +604,15 @@ public partial class VerticalMazeGenerator : Node3D
 		GD.Print($"Chat {catType} créé en position ({x}, {y})");
 	}
 	
-	// Reste du code...
-	
-	private void AddPerimeterWalls(Node3D mazeNode, int size, Vector2I entrance, Vector2I exit)
+	// MODIFIÉ: Ajout du paramètre mazeIndex
+	private void AddPerimeterWalls(Node3D mazeNode, int size, Vector2I entrance, Vector2I exit, int mazeIndex)
 	{
 		// Murs du haut sauf à l'entrée
 		for (int x = 0; x < size; x++)
 		{
 			if (x != entrance.X) // Ne pas créer de mur à l'entrée
 			{
-				CreateBoundaryWall(mazeNode, x, 0, true, false);
+				CreateBoundaryWall(mazeNode, x, 0, true, false, mazeIndex);
 			}
 		}
 		
@@ -534,24 +621,25 @@ public partial class VerticalMazeGenerator : Node3D
 		{
 			if (x != exit.X) // Ne pas créer de mur à la sortie
 			{
-				CreateBoundaryWall(mazeNode, x, size - 1, true, true);
+				CreateBoundaryWall(mazeNode, x, size - 1, true, true, mazeIndex);
 			}
 		}
 		
 		// Murs de gauche
 		for (int y = 0; y < size; y++)
 		{
-			CreateBoundaryWall(mazeNode, 0, y, false, false);
+			CreateBoundaryWall(mazeNode, 0, y, false, false, mazeIndex);
 		}
 		
 		// Murs de droite
 		for (int y = 0; y < size; y++)
 		{
-			CreateBoundaryWall(mazeNode, size - 1, y, false, true);
+			CreateBoundaryWall(mazeNode, size - 1, y, false, true, mazeIndex);
 		}
 	}
 	
-	private void CreateWallSegment(Node3D mazeNode, int x, int y, bool horizontal, bool positive)
+	// MODIFIÉ: Ajout du paramètre mazeIndex
+	private void CreateWallSegment(Node3D mazeNode, int x, int y, bool horizontal, bool positive, int mazeIndex)
 	{
 		var wall = new StaticBody3D();
 		var meshInstance = new MeshInstance3D();
@@ -590,11 +678,13 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		meshInstance.Mesh = boxMesh;
 		
-		// Matériau pour le mur avec texture
+		// MODIFIÉ: Utiliser la texture spécifique à ce labyrinthe
 		var material = new StandardMaterial3D();
-		if (_wallTexture != null)
+		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
+		
+		if (wallTexture != null)
 		{
-			material.AlbedoTexture = _wallTexture;
+			material.AlbedoTexture = wallTexture;
 			// Répétition de la texture
 			material.Uv1Scale = new Vector3(2.0f, 1.0f, 1.0f);
 		}
@@ -625,8 +715,8 @@ public partial class VerticalMazeGenerator : Node3D
 		mazeNode.AddChild(wall);
 	}
 	
-	// Crée un mur de périmètre (plus épais)
-	private void CreateBoundaryWall(Node3D mazeNode, int x, int y, bool horizontal, bool positive)
+	// MODIFIÉ: Ajout du paramètre mazeIndex
+	private void CreateBoundaryWall(Node3D mazeNode, int x, int y, bool horizontal, bool positive, int mazeIndex)
 	{
 		var wall = new StaticBody3D();
 		var meshInstance = new MeshInstance3D();
@@ -665,11 +755,13 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		meshInstance.Mesh = boxMesh;
 		
-		// Matériau pour le mur avec texture
+		// MODIFIÉ: Utiliser la texture spécifique à ce labyrinthe
 		var material = new StandardMaterial3D();
-		if (_wallTexture != null)
+		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
+		
+		if (wallTexture != null)
 		{
-			material.AlbedoTexture = _wallTexture;
+			material.AlbedoTexture = wallTexture;
 			// Répétition de la texture
 			material.Uv1Scale = new Vector3(2.0f, 1.0f, 1.0f);
 		}
@@ -1047,8 +1139,8 @@ public partial class VerticalMazeGenerator : Node3D
 		audioPlayer.Finished += () => audioPlayer.QueueFree();
 	}
 
-	// MODIFICATION: Renommer et modifier pour tous les labyrinthes
-	private void AddEntranceWall(Node3D mazeNode, int size, Vector2I entrancePos)
+	// MODIFIÉ: Ajout du paramètre mazeIndex
+	private void AddEntranceWall(Node3D mazeNode, int size, Vector2I entrancePos, int mazeIndex)
 	{
 		// Créer un mur devant l'entrée du labyrinthe
 		var wall = new StaticBody3D();
@@ -1064,11 +1156,13 @@ public partial class VerticalMazeGenerator : Node3D
 		meshInstance.Mesh = boxMesh;
 		meshInstance.Position = new Vector3(0, _wallHeight / 2, offsetZ);
 		
-		// Matériau pour le mur
+		// MODIFIÉ: Utiliser la texture spécifique à ce labyrinthe
 		var material = new StandardMaterial3D();
-		if (_wallTexture != null)
+		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
+		
+		if (wallTexture != null)
 		{
-			material.AlbedoTexture = _wallTexture;
+			material.AlbedoTexture = wallTexture;
 			material.Uv1Scale = new Vector3(2.0f, 1.0f, 1.0f);
 		}
 		else
