@@ -1,8 +1,45 @@
-[gd_scene load_steps=3 format=3 uid="uid://dko1pekeodxtc"]
+[gd_scene load_steps=6 format=3 uid="uid://dko1pekeodxtc"]
 
 [ext_resource type="Script" uid="uid://b5e0pj3a2acvb" path="res://scripts/MainScene.cs" id="1_ibiss"]
 [ext_resource type="PackedScene" uid="uid://umwffvxyerv" path="res://scenes/PlayerBall.tscn" id="2_c6dvc"]
+[ext_resource type="Shader" uid="uid://bypy1ur72fqkf" path="res://assets/blur_shader.shader.gdshader" id="3_c6dvc"]
 
-[node name="MainScene" type="Node3D"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_611at"]
+shader = ExtResource("3_c6dvc")
+shader_parameter/blur_strength = 4.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_k24pf"]
+shader = ExtResource("3_c6dvc")
+shader_parameter/blur_strength = 7.18
+
+[node name="MainScene" type="Node3D" node_paths=PackedStringArray("Viewport3D", "BlurredDisplay")]
 script = ExtResource("1_ibiss")
 _playerBallScene = ExtResource("2_c6dvc")
+Viewport3D = NodePath("SubViewport")
+BlurredDisplay = NodePath("TextureRect")
+BlurShaderMaterial = SubResource("ShaderMaterial_611at")
+
+[node name="SubViewport" type="SubViewport" parent="."]
+render_target_update_mode = 4
+
+[node name="Camera3D" type="Camera3D" parent="SubViewport"]
+physics_interpolation_mode = 1
+auto_translate_mode = 2
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 5, 5)
+doppler_tracking = 2
+
+[node name="TextureRect" type="TextureRect" parent="."]
+material = SubResource("ShaderMaterial_k24pf")
+offset_left = 12594.0
+offset_top = -17801.0
+offset_right = 13744.0
+offset_bottom = -17153.0
+scale = Vector2(-19176.6, 185700)
+
+[node name="ColorRect" type="ColorRect" parent="TextureRect"]
+offset_left = -4.0
+offset_top = -8.0
+offset_right = 36.0
+offset_bottom = 32.0
+scale = Vector2(29.3728, 16.5587)
+color = Color(0.239216, 0.0941176, 1, 0)

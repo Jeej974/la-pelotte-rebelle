@@ -44,6 +44,7 @@ public partial class GameManager : Node
 		
 		// Rechercher le générateur de labyrinthe
 		CallDeferred(nameof(FindMazeGenerator));
+		// 
 	}
 	
 	private void FindMazeGenerator()

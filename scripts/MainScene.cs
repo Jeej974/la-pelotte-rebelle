@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 
+
 public partial class MainScene : Node3D
 {
 	[Export]
@@ -12,7 +13,8 @@ public partial class MainScene : Node3D
 	
 	// Référence au gestionnaire Arduino
 	private ArduinoManager _arduinoManager;
-	
+		// Charger la police
+	private Font font = GD.Load<Font>("res://fonts/PoetsenOne-Regular.ttf");
 	// Référence à la balle du joueur
 	private PlayerBall _playerBall;
 	
@@ -26,7 +28,12 @@ public partial class MainScene : Node3D
 	
 	// Texte central pour instructions
 	private Label _centerMessageLabel;
-	
+	private Label _centerMessageLabel2;
+	private Label _centerMessageLabel3;
+	// Etat dans le jeu
+	private string etatGame = "LoadingStart" ;
+
+
 	// État du jeu
 	private int _currentMazeIndex = 0;
 	private bool _gameCompleted = false;
@@ -74,8 +81,26 @@ public partial class MainScene : Node3D
 		}
 	}
 	
+	  // Les objets exportés depuis l'inspecteur
+	[Export] public Viewport Viewport3D;
+	[Export] public TextureRect BlurredDisplay;
+	[Export] public ShaderMaterial BlurShaderMaterial;
+
+
+	
 	public override void _Ready()
 	{
+		// starting game
+		// Crée un ViewportTexture pour capturer la scène 3D
+		if (Viewport3D != null && BlurredDisplay != null)
+		{
+			//RenderingServer.SetDefaultClearColor(new Color(0.2f, 0.6f, 0.9f));
+			ViewportTexture viewportTexture = new ViewportTexture();
+			viewportTexture.ViewportPath = Viewport3D.GetPath();
+			BlurredDisplay.Texture = viewportTexture;
+			BlurredDisplay.Material = BlurShaderMaterial;
+		}
+		
 		// Initialiser le temps de jeu
 		_remainingTime = _initialGameTime;
 		
@@ -97,17 +122,24 @@ public partial class MainScene : Node3D
 		
 		// Créer l'interface utilisateur
 		CallDeferred(nameof(CreateUI));
-		
+		MyThreadFunction();
 		// Charger les scores précédents (si disponibles)
 		LoadHighScores();
 	}
 	
-	private void CreateUI()
-	{
-		// Créer un canvas layer pour l'UI
+	private CanvasLayer AddCanvas() {
+				// Créer un canvas layer pour l'UI
 		var canvasLayer = new CanvasLayer();
 		canvasLayer.Name = "UICanvas";
 		AddChild(canvasLayer);
+		
+		return canvasLayer;
+	}
+	
+	private void CreateUI()
+	{
+
+		var canvasLayer = AddCanvas();
 		
 		// Créer un panneau pour l'UI
 		_uiPanel = new Panel();
@@ -115,7 +147,6 @@ public partial class MainScene : Node3D
 		_uiPanel.Size = new Vector2(300, 220); // Augmenter la taille pour les nouveaux labels
 		_uiPanel.Position = new Vector2(-300, 0);
 		canvasLayer.AddChild(_uiPanel);
-		
 		// Ajouter une étiquette d'information
 		_infoLabel = new Label();
 		_infoLabel.Text = "Utilisez les flèches ou l'Arduino pour déplacer la balle";
@@ -154,21 +185,155 @@ public partial class MainScene : Node3D
 		_scoreLabel.Size = new Vector2(280, 30);
 		_uiPanel.AddChild(_scoreLabel);
 		
-		// Créer un texte au centre de l'écran pour les instructions/messages importants
+		
+		// 
+	if (etatGame == "LoadingStart")
+{
+	_centerMessageLabel2 = new Label();
+
+	// Texte
+	_centerMessageLabel2.Text = "Manette en cours de calibrage, veuillez patienter\n";
+
+		// Ancrer le label en bas (centré horizontalement)
+		_centerMessageLabel2.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
+
+		// Taille du label
+		_centerMessageLabel2.Size = new Vector2(100, 100);
+
+		// Recentrer horizontalement, et placer un peu au-dessus du bord bas
+		_centerMessageLabel2.SetPivotOffset(_centerMessageLabel2.Size / 2);
+		_centerMessageLabel2.Position = new Vector2(20, -60);
+
+	// Taille d’écran
+	Vector2 screenSize = GetViewport().GetVisibleRect().Size;
+
+	// Taille de police dynamique (par ex. 8% de la hauteur écran)
+	int dynamicFontSize = (int)(screenSize.Y * 0.05f); // Ajuste à ton goût
+
+	// Créer les settings avec taille dynamique
+	var labelSettings = new LabelSettings
+	{
+		Font = font,
+		FontSize = dynamicFontSize,
+		FontColor = new Color(1f, 1f, 1f)
+	};
+
+	_centerMessageLabel2.LabelSettings = labelSettings;
+
+	// Ajout au canvas
+	canvasLayer.AddChild(_centerMessageLabel2);
+
+	// Lancer les points de chargement
+	ShowLoadingDots();
+}
+		// Mettre à jour les étiquettes
+		UpdateUI();
+	}
+
+// chargement start screen
+public async void ShowLoadingDots()
+{
+	var canvasLayer = AddCanvas();
+	_centerMessageLabel3 = new Label();
+	_centerMessageLabel3.Text = "Chargement";
+	_centerMessageLabel3.Position = new Vector2(20, 10);
+
+	// Taille d’écran
+	Vector2 screenSize = GetViewport().GetVisibleRect().Size;
+	
+	int dynamicFontSize = (int)(screenSize.Y * 0.03f);
+// Créer les settings avec taille dynamique
+	var labelSettings = new LabelSettings
+	{
+		Font = font,
+			FontSize = dynamicFontSize,
+		FontColor = new Color(1f, 1f, 1f)
+	};
+
+	_centerMessageLabel3.LabelSettings = labelSettings;
+	for (int i = 0; i < 20; i++)
+	{
+		_centerMessageLabel3.Text += "...";
+		canvasLayer.AddChild(_centerMessageLabel3);
+		await ToSignal(GetTree().CreateTimer(0.3), "timeout"); // Attend 0.3 seconde
+	}
+		
+			
+}
+	
+public void ShowLabelStart() {
+
+		var canvasLayer = AddCanvas();
+		
+		if (etatGame == "StartGame") {
+			_centerMessageLabel2.QueueFree();
+			_centerMessageLabel3.QueueFree();
+			
+			// Créer un texte au centre de l'écran pour les instructions/messages importants
 		_centerMessageLabel = new Label();
+				_centerMessageLabel.Position = new Vector2(20, -60);
+
+	// Taille d’écran
+	Vector2 screenSize = GetViewport().GetVisibleRect().Size;
+
+	// Taille de police dynamique (par ex. 8% de la hauteur écran)
+	int dynamicFontSize = (int)(screenSize.Y * 0.02f); // Ajuste à ton goût
+
+	// Créer les settings avec taille dynamique
+	var labelSettings = new LabelSettings
+	{
+		Font = font,
+		FontSize = dynamicFontSize,
+		FontColor = new Color(1f, 1f, 1f)
+	};
+	   _centerMessageLabel.LabelSettings = labelSettings;
 		_centerMessageLabel.Text = "APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER";
 		_centerMessageLabel.HorizontalAlignment = HorizontalAlignment.Center;
 		_centerMessageLabel.VerticalAlignment = VerticalAlignment.Center;
+
 		_centerMessageLabel.SetAnchorsPreset(Control.LayoutPreset.Center);
 		_centerMessageLabel.Size = new Vector2(800, 100);
 		_centerMessageLabel.Position = new Vector2(-400, -50);
 		_centerMessageLabel.AddThemeColorOverride("font_color", new Color(1, 1, 0)); // Jaune
 		_centerMessageLabel.AddThemeConstantOverride("font_size", 32); // Plus grande taille
 		canvasLayer.AddChild(_centerMessageLabel);
-		
-		// Mettre à jour les étiquettes
-		UpdateUI();
+		etatGame = "GoGame";
+		}
+}
+public async void MyThreadFunction()
+{
+	double duration = 6.0;
+	double elapsed = 0.0;
+
+	// Créer un Timer dynamiquement
+	var timer = new Timer
+	{
+		OneShot = true,
+		WaitTime = duration // Durée en secondes
+	};
+	AddChild(timer); // Nécessaire pour que le timer fonctionne
+
+	timer.Start(); // Démarre le timer
+	GD.Print("Timer démarré. Durée : ", duration, " secondes.");
+
+	// Boucle pendant que le timer tourne
+	while (elapsed < duration)
+	{
+		await ToSignal(GetTree(), "process_frame"); // Attendre une frame
+		elapsed += GetProcessDeltaTime(); // Incrémente le temps écoulé
+		GD.Print("Temps écoulé : ", Math.Round(elapsed, 2), "s");
 	}
+
+	// Attendre le signal Timeout du Timer
+	await ToSignal(timer, Timer.SignalName.Timeout);
+
+	// Le temps est écoulé
+	etatGame = "StartGame";
+	GD.Print("tempsDepasse = TRUE");
+
+	// Nettoyage
+	timer.QueueFree();
+}
 	
 	// Mise à jour générale de l'interface utilisateur
 	private void UpdateUI()
@@ -293,6 +458,7 @@ public partial class MainScene : Node3D
 	
 	public override void _Process(double delta)
 	{
+		ShowLabelStart();
 		// Vérifier si le bouton Arduino est pressé
 		if (_arduinoManager != null && _arduinoManager.IsJumpDetected())
 		{
@@ -331,12 +497,14 @@ public partial class MainScene : Node3D
 	{
 		// Afficher un message de débogage
 		GD.Print("Bouton détecté! État du jeu: " + _gameState);
-		
+		if (etatGame == "GoGame") {
 		switch (_gameState)
 		{
 			case GameState.WaitingToStart:
 				// Démarrer le jeu
 				StartGame();
+				BlurredDisplay.QueueFree();
+				Viewport3D.QueueFree();
 				break;
 				
 			case GameState.Playing:
@@ -349,6 +517,7 @@ public partial class MainScene : Node3D
 				// Redémarrer le jeu
 				RestartGame();
 				break;
+			}
 		}
 	}
 	

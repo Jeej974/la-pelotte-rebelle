@@ -6,7 +6,7 @@ using System.Globalization;
 public partial class ArduinoManager : Node
 {
 	// Configuration du port COM
-	private const string PORT_NAME = "COM5";  // Port à utiliser (à ajuster si nécessaire)
+	private const string PORT_NAME = "COM3";  // Port à utiliser (à ajuster si nécessaire)
 	private const int BAUD_RATE = 9600;       // Vitesse de communication
 	
 	// Communication
@@ -221,6 +221,7 @@ public partial class ArduinoManager : Node
 			}
 			else if (data == "CAL:DONE")
 			{
+				
 				GD.Print("Arduino calibré avec succès");
 				_isCalibrating = false;
 				UpdateStatus("Calibration terminée");
