@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 
 public partial class MainScene : Node3D
 {
@@ -18,14 +19,66 @@ public partial class MainScene : Node3D
 	// Interface utilisateur
 	private Label _infoLabel;
 	private Label _mazeCountLabel;
+	private Label _timeLabel;     // Label pour afficher le temps
+	private Label _catEffectLabel; // Label pour les effets des chats
+	private Label _scoreLabel;     // NOUVEAU: Label pour afficher le score
 	private Panel _uiPanel;
+	
+	// Texte central pour instructions
+	private Label _centerMessageLabel;
 	
 	// État du jeu
 	private int _currentMazeIndex = 0;
 	private bool _gameCompleted = false;
 	
+	// Gestion du temps
+	[Export]
+	private float _initialGameTime = 60.0f; // 60 secondes de base
+	private float _remainingTime;
+	private bool _timeOver = false;
+	
+	// États du jeu
+	private enum GameState
+	{
+		WaitingToStart,
+		Playing,
+		GameOver,
+		Victory
+	}
+	private GameState _gameState = GameState.WaitingToStart;
+	
+	// Score
+	private int _mazesCompleted = 0;
+	private Dictionary<CatType, int> _catsCollected = new Dictionary<CatType, int>()
+	{
+		{ CatType.Orange, 0 },
+		{ CatType.Black, 0 },
+		{ CatType.Tabby, 0 },
+		{ CatType.White, 0 },
+		{ CatType.Siamese, 0 }
+	};
+	private List<ScoreEntry> _highScores = new List<ScoreEntry>();
+	
+	// Struct pour les entrées de score
+	private struct ScoreEntry
+	{
+		public int mazesCompleted;
+		public int totalCats;
+		public string date;
+		
+		public ScoreEntry(int mazes, int cats)
+		{
+			mazesCompleted = mazes;
+			totalCats = cats;
+			date = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+		}
+	}
+	
 	public override void _Ready()
 	{
+		// Initialiser le temps de jeu
+		_remainingTime = _initialGameTime;
+		
 		// Créer l'Arduino Manager et lui donner un nom précis
 		_arduinoManager = new ArduinoManager();
 		_arduinoManager.Name = "ArduinoManager";
@@ -41,6 +94,12 @@ public partial class MainScene : Node3D
 		
 		// Attendre pour s'assurer que tout est initialisé
 		CallDeferred(nameof(SpawnPlayerBall));
+		
+		// Créer l'interface utilisateur
+		CallDeferred(nameof(CreateUI));
+		
+		// Charger les scores précédents (si disponibles)
+		LoadHighScores();
 	}
 	
 	private void CreateUI()
@@ -53,7 +112,7 @@ public partial class MainScene : Node3D
 		// Créer un panneau pour l'UI
 		_uiPanel = new Panel();
 		_uiPanel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
-		_uiPanel.Size = new Vector2(300, 100);
+		_uiPanel.Size = new Vector2(300, 220); // Augmenter la taille pour les nouveaux labels
 		_uiPanel.Position = new Vector2(-300, 0);
 		canvasLayer.AddChild(_uiPanel);
 		
@@ -67,10 +126,106 @@ public partial class MainScene : Node3D
 		
 		// Ajouter une étiquette pour le compteur de labyrinthe
 		_mazeCountLabel = new Label();
-		_mazeCountLabel.Text = "Labyrinthe: 1 / 10";
-		_mazeCountLabel.Position = new Vector2(10, 60);
+		_mazeCountLabel.Text = "Labyrinthe: 1 / ?";
+		_mazeCountLabel.Position = new Vector2(10, 50);
 		_mazeCountLabel.Size = new Vector2(280, 30);
 		_uiPanel.AddChild(_mazeCountLabel);
+		
+		// Ajouter une étiquette pour le temps
+		_timeLabel = new Label();
+		_timeLabel.Text = "Temps: 60s";
+		_timeLabel.Position = new Vector2(10, 80);
+		_timeLabel.Size = new Vector2(280, 30);
+		_timeLabel.Modulate = new Color(1, 1, 1); // Blanc par défaut
+		_uiPanel.AddChild(_timeLabel);
+		
+		// Ajouter une étiquette pour les effets des chats
+		_catEffectLabel = new Label();
+		_catEffectLabel.Text = "";
+		_catEffectLabel.Position = new Vector2(10, 110);
+		_catEffectLabel.Size = new Vector2(280, 30);
+		_catEffectLabel.Visible = false; // Caché par défaut
+		_uiPanel.AddChild(_catEffectLabel);
+		
+		// NOUVEAU: Ajouter une étiquette pour le score
+		_scoreLabel = new Label();
+		_scoreLabel.Text = "Chats: 0 | Score: 0";
+		_scoreLabel.Position = new Vector2(10, 150);
+		_scoreLabel.Size = new Vector2(280, 30);
+		_uiPanel.AddChild(_scoreLabel);
+		
+		// Créer un texte au centre de l'écran pour les instructions/messages importants
+		_centerMessageLabel = new Label();
+		_centerMessageLabel.Text = "APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER";
+		_centerMessageLabel.HorizontalAlignment = HorizontalAlignment.Center;
+		_centerMessageLabel.VerticalAlignment = VerticalAlignment.Center;
+		_centerMessageLabel.SetAnchorsPreset(Control.LayoutPreset.Center);
+		_centerMessageLabel.Size = new Vector2(800, 100);
+		_centerMessageLabel.Position = new Vector2(-400, -50);
+		_centerMessageLabel.AddThemeColorOverride("font_color", new Color(1, 1, 0)); // Jaune
+		_centerMessageLabel.AddThemeConstantOverride("font_size", 32); // Plus grande taille
+		canvasLayer.AddChild(_centerMessageLabel);
+		
+		// Mettre à jour les étiquettes
+		UpdateUI();
+	}
+	
+	// Mise à jour générale de l'interface utilisateur
+	private void UpdateUI()
+	{
+		// Mettre à jour le label de temps
+		UpdateTimeLabel();
+		
+		// Mettre à jour le label de score
+		UpdateScoreLabel();
+		
+		// Mettre à jour le message central selon l'état du jeu
+		UpdateCenterMessage();
+	}
+	
+	// Mettre à jour le message central
+	private void UpdateCenterMessage()
+	{
+		if (_centerMessageLabel == null) return;
+		
+		switch (_gameState)
+		{
+			case GameState.WaitingToStart:
+				_centerMessageLabel.Text = "APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER";
+				_centerMessageLabel.Visible = true;
+				_centerMessageLabel.Modulate = new Color(1, 1, 0); // Jaune
+				break;
+				
+			case GameState.Playing:
+				_centerMessageLabel.Visible = false;
+				break;
+				
+			case GameState.GameOver:
+				_centerMessageLabel.Text = "VOUS N'AVEZ PLUS DE LAINE... APPUYEZ SUR LE BOUTON POUR RECOMMENCER";
+				_centerMessageLabel.Visible = true;
+				_centerMessageLabel.Modulate = new Color(1, 0, 0); // Rouge
+				break;
+				
+			case GameState.Victory:
+				_centerMessageLabel.Text = "FÉLICITATIONS! VOUS AVEZ TERMINÉ TOUS LES LABYRINTHES!";
+				_centerMessageLabel.Visible = true;
+				_centerMessageLabel.Modulate = new Color(0, 1, 0); // Vert
+				break;
+		}
+	}
+	
+	// Mettre à jour le label de score
+	private void UpdateScoreLabel()
+	{
+		if (_scoreLabel == null) return;
+		
+		int totalCats = 0;
+		foreach (var count in _catsCollected.Values)
+		{
+			totalCats += count;
+		}
+		
+		_scoreLabel.Text = $"Labyrinthes: {_mazesCompleted} | Chats: {totalCats}";
 	}
 	
 	private void SpawnPlayerBall()
@@ -109,7 +264,7 @@ public partial class MainScene : Node3D
 		}
 		
 		// Obtenir la position d'entrée du premier labyrinthe
-		int size = _mazeGenerator._mazeSizes[0];
+		int size = _mazeGenerator.GetMazeSize(0); // Utiliser la méthode d'accès
 		Vector2I entrancePos = _mazeGenerator.GetEntrancePosition(size, 0);
 		
 		// Positionner le joueur à l'entrée du premier labyrinthe
@@ -129,47 +284,223 @@ public partial class MainScene : Node3D
 			GD.Print("Caméra globale désactivée");
 		}
 		
-		// Créer l'interface utilisateur
-		CreateUI();
-	}
-	
-	private void SetupPlayerCamera()
-	{
-		// Accéder à la caméra du joueur
-		Camera3D playerCamera = _playerBall.GetNodeOrNull<Camera3D>("Camera3D");
-		if (playerCamera != null)
+		// Au début, désactiver les contrôles du joueur
+		if (_playerBall != null)
 		{
-			// Configurer la caméra pour voir le labyrinthe de haut
-			playerCamera.Position = new Vector3(0, 10, 5);
-			playerCamera.RotationDegrees = new Vector3(-60, 0, 0);
-			playerCamera.Current = true;
-			
-			// Ajuster le champ de vision pour mieux voir le labyrinthe
-			playerCamera.Fov = 70;
+			_playerBall.DisableControls();
 		}
 	}
 	
 	public override void _Process(double delta)
 	{
-		// Gérer les touches de fonction
-		if (Input.IsActionJustPressed("ui_cancel"))
+		// Vérifier si le bouton Arduino est pressé
+		if (_arduinoManager != null && _arduinoManager.IsJumpDetected())
 		{
-			GetTree().Quit();
+			HandleButtonPress();
 		}
 		
-		if (Input.IsActionJustPressed("ui_select"))
+		// Également vérifier les touches du clavier pour le débogage
+		if (Input.IsActionJustPressed("ui_accept"))
 		{
-			RestartGame();
+			HandleButtonPress();
 		}
 		
-		// Mise à jour de l'interface utilisateur
-		if (_gameCompleted)
+		// Si le jeu n'est pas encore démarré ou est terminé, ne pas mettre à jour le temps
+		if (_gameState != GameState.Playing)
 		{
-			_infoLabel.Text = "Félicitations! Vous avez terminé tous les labyrinthes! Appuyez sur F5 pour recommencer.";
+			return;
+		}
+		
+		// Mise à jour du temps restant
+		_remainingTime -= (float)delta;
+		UpdateTimeLabel();
+		
+		// Vérifier si le temps est écoulé
+		if (_remainingTime <= 0)
+		{
+			_remainingTime = 0;
+			GameOver();
 		}
 		
 		// Vérifier le passage à un nouveau labyrinthe
 		CheckMazeTransition();
+	}
+	
+	// Gérer l'appui sur le bouton (Arduino ou clavier)
+	private void HandleButtonPress()
+	{
+		// Afficher un message de débogage
+		GD.Print("Bouton détecté! État du jeu: " + _gameState);
+		
+		switch (_gameState)
+		{
+			case GameState.WaitingToStart:
+				// Démarrer le jeu
+				StartGame();
+				break;
+				
+			case GameState.Playing:
+				// Optionnel: Redémarrer le jeu ou ignorer
+				// RestartGame();
+				break;
+				
+			case GameState.GameOver:
+			case GameState.Victory:
+				// Redémarrer le jeu
+				RestartGame();
+				break;
+		}
+	}
+	
+	// Démarrer le jeu
+	private void StartGame()
+	{
+		_gameState = GameState.Playing;
+		
+		// Activer les contrôles du joueur
+		if (_playerBall != null)
+		{
+			_playerBall.EnableControls();
+		}
+		
+		// Mettre à jour l'interface
+		UpdateUI();
+		
+		GD.Print("Jeu démarré");
+	}
+	
+	// Mise à jour de l'affichage du temps
+	private void UpdateTimeLabel()
+	{
+		if (_timeLabel == null) return;
+		
+		int seconds = (int)_remainingTime;
+		_timeLabel.Text = $"Temps: {seconds}s";
+		
+		// Changer la couleur si le temps est presque écoulé
+		if (_remainingTime < 10)
+		{
+			_timeLabel.Modulate = new Color(1, 0, 0); // Rouge
+		}
+		else if (_remainingTime < 20)
+		{
+			_timeLabel.Modulate = new Color(1, 0.5f, 0); // Orange
+		}
+		else
+		{
+			_timeLabel.Modulate = new Color(1, 1, 1); // Blanc
+		}
+	}
+	
+	// Méthode appelée par les chats ou la téléportation pour ajouter du temps
+	public void AddTime(float seconds)
+	{
+		if (_gameState != GameState.Playing) return;
+		
+		_remainingTime += seconds;
+		
+		// Afficher un message d'effet temporaire
+		ShowCatEffect(seconds);
+		
+		GD.Print($"Temps ajouté: {seconds} secondes. Temps restant: {_remainingTime}");
+	}
+	
+	// Méthode appelée quand un chat est collecté
+	public void AddCatCollected(int catType)
+	{
+		if (_gameState != GameState.Playing) return;
+		
+		// S'assurer que le type est valide
+		if (catType >= 0 && catType < 5)
+		{
+			CatType type = (CatType)catType;
+			if (_catsCollected.ContainsKey(type))
+			{
+				_catsCollected[type]++;
+			}
+			else
+			{
+				_catsCollected[type] = 1;
+			}
+			
+			// Mettre à jour l'affichage du score
+			UpdateScoreLabel();
+		}
+	}
+	
+	// Afficher un effet temporaire pour l'effet d'un chat
+	private void ShowCatEffect(float seconds)
+	{
+		if (_catEffectLabel == null) return;
+		
+		string effectText;
+		Color effectColor;
+		
+		if (seconds > 0)
+		{
+			effectText = $"+{seconds:0.0} secondes";
+			effectColor = new Color(0, 1, 0); // Vert pour positif
+		}
+		else
+		{
+			effectText = $"{seconds:0.0} secondes";
+			effectColor = new Color(1, 0, 0); // Rouge pour négatif
+		}
+		
+		_catEffectLabel.Text = effectText;
+		_catEffectLabel.Modulate = effectColor;
+		_catEffectLabel.Visible = true;
+		
+		// Créer un timer pour masquer le message après un délai
+		var timer = new Timer();
+		AddChild(timer);
+		timer.WaitTime = 2.0f; // 2 secondes
+		timer.OneShot = true;
+		timer.Timeout += () => {
+			_catEffectLabel.Visible = false;
+			timer.QueueFree();
+		};
+		timer.Start();
+	}
+	
+	// Appelé quand le temps est écoulé
+	private void GameOver()
+	{
+		if (_gameState == GameState.GameOver) return;
+		
+		_gameState = GameState.GameOver;
+		_timeOver = true;
+		
+		// Désactiver les contrôles du joueur
+		if (_playerBall != null)
+		{
+			_playerBall.DisableControls();
+		}
+		
+		// Sauvegarder le score
+		SaveScore();
+		
+		// Mettre à jour l'interface
+		UpdateUI();
+		
+		// Jouer un son de game over
+		PlayGameOverSound();
+		
+		GD.Print("Game Over - Plus de temps!");
+	}
+	
+	// Jouer un son de game over
+	private void PlayGameOverSound()
+	{
+		var audioPlayer = new AudioStreamPlayer();
+		AddChild(audioPlayer);
+		
+		// Configurer le son (à implémenter avec FMOD)
+		// audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/sounds/game_over.wav");
+		// audioPlayer.Play();
+		
+		// Supprimer le lecteur une fois le son terminé
+		audioPlayer.Finished += () => audioPlayer.QueueFree();
 	}
 	
 	private void CheckMazeTransition()
@@ -183,11 +514,19 @@ public partial class MainScene : Node3D
 		// Si le joueur a changé de labyrinthe
 		if (newMazeIndex != _currentMazeIndex && newMazeIndex >= 0)
 		{
+			// Si le joueur avance (et ne recule pas)
+			if (newMazeIndex > _currentMazeIndex)
+			{
+				// Incrémenter le nombre de labyrinthes complétés
+				_mazesCompleted++;
+				UpdateScoreLabel();
+			}
+			
 			_currentMazeIndex = newMazeIndex;
 			UpdateMazeCounter(newMazeIndex);
 			
 			// Vérifier si c'est le dernier labyrinthe
-			if (_currentMazeIndex == _mazeGenerator._mazeSizes.Length - 1)
+			if (_currentMazeIndex == _mazeGenerator.GetTotalMazeCount() - 1)
 			{
 				// Surveiller la position dans le dernier labyrinthe pour détecter la fin
 				CheckGameCompletion();
@@ -198,14 +537,15 @@ public partial class MainScene : Node3D
 	private int GetPlayerCurrentMaze()
 	{
 		// Trouver dans quel labyrinthe se trouve le joueur
-		for (int i = 0; i < _mazeGenerator._mazeSizes.Length; i++)
+		for (int i = 0; i < _mazeGenerator.GetTotalMazeCount(); i++)
 		{
 			Node3D maze = GetNodeOrNull<Node3D>($"MazeGenerator/Maze_{i}");
 			if (maze != null)
 			{
 				// Vérifier si le joueur est dans les limites X du labyrinthe
 				float mazeMinX = maze.GlobalPosition.X;
-				float mazeMaxX = mazeMinX + (_mazeGenerator._mazeSizes[i] * _mazeGenerator._cellSize);
+				int size = _mazeGenerator.GetMazeSize(i);
+				float mazeMaxX = mazeMinX + (size * _mazeGenerator._cellSize);
 				
 				if (_playerBall.GlobalPosition.X >= mazeMinX && _playerBall.GlobalPosition.X <= mazeMaxX)
 				{
@@ -223,12 +563,12 @@ public partial class MainScene : Node3D
 		if (_gameCompleted) return;
 		
 		// Obtenir le dernier labyrinthe
-		int lastMazeIndex = _mazeGenerator._mazeSizes.Length - 1;
+		int lastMazeIndex = _mazeGenerator.GetTotalMazeCount() - 1;
 		Node3D lastMaze = GetNodeOrNull<Node3D>($"MazeGenerator/Maze_{lastMazeIndex}");
 		if (lastMaze == null) return;
 		
 		// Obtenir les coordonnées de sortie du dernier labyrinthe
-		int lastMazeSize = _mazeGenerator._mazeSizes[lastMazeIndex];
+		int lastMazeSize = _mazeGenerator.GetMazeSize(lastMazeIndex);
 		Vector2I exitPos = _mazeGenerator.GetExitPosition(lastMazeSize, lastMazeIndex);
 		
 		// Calculer la position globale de la sortie
@@ -250,9 +590,7 @@ public partial class MainScene : Node3D
 	private void GameCompleted()
 	{
 		_gameCompleted = true;
-		
-		// Afficher un message de victoire
-		_infoLabel.Text = "Félicitations! Vous avez terminé tous les labyrinthes! Appuyez sur F5 pour recommencer.";
+		_gameState = GameState.Victory;
 		
 		// Désactiver les contrôles du joueur (optionnel)
 		if (_playerBall != null)
@@ -260,8 +598,16 @@ public partial class MainScene : Node3D
 			_playerBall.DisableControls();
 		}
 		
+		// Sauvegarder le score
+		SaveScore();
+		
+		// Mettre à jour l'interface
+		UpdateUI();
+		
 		// Ajouter des effets de victoire (son, particules, etc.)
 		PlayVictoryEffects();
+		
+		GD.Print("Jeu terminé avec succès!");
 	}
 	
 	private void PlayVictoryEffects()
@@ -313,8 +659,64 @@ public partial class MainScene : Node3D
 	{
 		if (_mazeCountLabel != null)
 		{
-			_mazeCountLabel.Text = $"Labyrinthe: {mazeIndex + 1} / {_mazeGenerator._mazeSizes.Length}";
+			// Afficher "infini" pour le nombre total de labyrinthes
+			_mazeCountLabel.Text = $"Labyrinthe: {mazeIndex + 1} / ∞";
 		}
+	}
+	
+	// Sauvegarder le score actuel
+	private void SaveScore()
+	{
+		int totalCats = 0;
+		foreach (var count in _catsCollected.Values)
+		{
+			totalCats += count;
+		}
+		
+		// Créer une nouvelle entrée de score
+		var newScore = new ScoreEntry(_mazesCompleted, totalCats);
+		
+		// Ajouter à la liste des scores
+		_highScores.Add(newScore);
+		
+		// Trier les scores (du plus élevé au plus bas)
+		_highScores.Sort((a, b) => {
+			// D'abord trier par nombre de labyrinthes
+			int mazeCompare = b.mazesCompleted.CompareTo(a.mazesCompleted);
+			if (mazeCompare != 0) return mazeCompare;
+			
+			// Ensuite par nombre de chats
+			return b.totalCats.CompareTo(a.totalCats);
+		});
+		
+		// Limiter la liste à 10 scores maximum
+		if (_highScores.Count > 10)
+		{
+			_highScores.RemoveAt(_highScores.Count - 1);
+		}
+		
+		// Dans une implémentation plus complète, sauvegarder dans un fichier
+		SaveHighScoresToFile();
+	}
+	
+	// Sauvegarder les scores dans un fichier
+	private void SaveHighScoresToFile()
+	{
+		// Pour une implémentation simple, on peut utiliser JSON
+		// Mais pour l'instant, affichons juste les scores
+		GD.Print("=== SCORES SAUVEGARDÉS ===");
+		for (int i = 0; i < _highScores.Count; i++)
+		{
+			GD.Print($"{i+1}. Labyrinthes: {_highScores[i].mazesCompleted}, Chats: {_highScores[i].totalCats}, Date: {_highScores[i].date}");
+		}
+	}
+	
+	// Charger les scores précédents
+	private void LoadHighScores()
+	{
+		// Dans une implémentation complète, charger depuis un fichier
+		// Pour l'instant, juste initialiser avec des données vides
+		_highScores = new List<ScoreEntry>();
 	}
 	
 	private void RestartGame()

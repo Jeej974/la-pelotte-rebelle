@@ -1,14 +1,10 @@
-[gd_scene load_steps=5 format=3 uid="uid://umwffvxyerv"]
+[gd_scene load_steps=4 format=3 uid="uid://umwffvxyerv"]
 
 [ext_resource type="Script" uid="uid://ctm4e822m3y60" path="res://scripts/PlayerBall.cs" id="1_sty6k"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_sty6k"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sty6k"]
-albedo_color = Color(0.165656, 0.165656, 0.165656, 1)
-
-[sub_resource type="SphereMesh" id="SphereMesh_d2ebr"]
-material = SubResource("StandardMaterial3D_sty6k")
+[sub_resource type="SphereMesh" id="SphereMesh_sty6k"]
 
 [node name="PlayerBall" type="RigidBody3D"]
 script = ExtResource("1_sty6k")
@@ -19,7 +15,7 @@ shape = SubResource("SphereShape3D_sty6k")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
-mesh = SubResource("SphereMesh_d2ebr")
+mesh = SubResource("SphereMesh_sty6k")
 skeleton = NodePath("../..")
 
 [node name="PlayerFollowPivot" type="Node3D" parent="."]

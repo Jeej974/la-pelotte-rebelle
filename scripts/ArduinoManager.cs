@@ -22,6 +22,12 @@ public partial class ArduinoManager : Node
 	private bool _jumpDetected = false;
 	private bool _isCalibrating = false;
 	
+	// Gestion du bouton - Nouveau
+	private bool _buttonPressed = false;
+	private bool _buttonPressProcessed = true; // Pour éviter les activations multiples
+	private ulong _lastButtonPressTime = 0;
+	private const ulong BUTTON_DEBOUNCE_TIME = 500; // Temps de debounce en ms
+	
 	// Messages UI
 	private Label _statusLabel;
 	private Label _jumpLabel;
@@ -67,10 +73,27 @@ public partial class ArduinoManager : Node
 		// Lire les données de l'Arduino si disponibles
 		ReadSerialData();
 		
-		// Afficher le message de saut si détecté
-		if (_jumpDetected)
+		// Traitement du bouton avec debounce
+		if (_buttonPressed && !_buttonPressProcessed)
 		{
-			ShowJumpMessage("SAUT DÉTECTÉ !");
+			ulong currentTime = Time.GetTicksMsec();
+			if (currentTime - _lastButtonPressTime > BUTTON_DEBOUNCE_TIME)
+			{
+				_jumpDetected = true; // Utiliser le même signal que pour le saut
+				_buttonPressProcessed = true;
+				_lastButtonPressTime = currentTime;
+				ShowJumpMessage("BOUTON PRESSÉ!");
+			}
+		}
+		
+		// Réinitialiser l'état du bouton après un certain temps
+		if (_buttonPressed && _buttonPressProcessed)
+		{
+			ulong currentTime = Time.GetTicksMsec();
+			if (currentTime - _lastButtonPressTime > BUTTON_DEBOUNCE_TIME * 2)
+			{
+				_buttonPressed = false;
+			}
 		}
 	}
 	
@@ -211,6 +234,23 @@ public partial class ArduinoManager : Node
 			return;
 		}
 		
+		// Traiter les événements de bouton - Nouveau
+		if (data.StartsWith("BTN:"))
+		{
+			if (data == "BTN:PRESSED")
+			{
+				GD.Print("Bouton Arduino pressé!");
+				_buttonPressed = true;
+				_buttonPressProcessed = false;
+			}
+			else if (data == "BTN:RELEASED")
+			{
+				GD.Print("Bouton Arduino relâché");
+				_buttonPressed = false;
+			}
+			return;
+		}
+		
 		// Traiter les événements de saut
 		if (data.StartsWith("EVENT:"))
 		{
@@ -240,6 +280,17 @@ public partial class ArduinoManager : Node
 			if (values[3] == "1")
 			{
 				_jumpDetected = true;
+			}
+			
+			// Vérifier si un bouton est pressé (dans le cas où il est inclus dans la trame) - Nouveau
+			if (values.Length >= 5 && values[4] == "1")
+			{
+				_buttonPressed = true;
+				_buttonPressProcessed = false;
+			}
+			else if (values.Length >= 5)
+			{
+				_buttonPressed = false;
 			}
 		}
 	}
@@ -301,6 +352,12 @@ public partial class ArduinoManager : Node
 		bool result = _jumpDetected;
 		_jumpDetected = false;
 		return result;
+	}
+	
+	// Vérifier si le bouton est pressé - Nouveau
+	public bool IsButtonPressed()
+	{
+		return _buttonPressed && !_buttonPressProcessed;
 	}
 
 	// Vérifier si la calibration est en cours

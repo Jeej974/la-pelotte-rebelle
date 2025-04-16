@@ -1,0 +1,33 @@
+[gd_scene load_steps=5 format=3 uid="uid://cpn4aq2p5gjvn"]
+
+[ext_resource type="Script" uid="uid://di2bbcw0pftiy" path="res://scripts/Cat.cs" id="1_cmxsw"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_jbaxv"]
+radius = 0.4
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2tfkn"]
+transparency = 1
+shading_mode = 0
+billboard_mode = 2
+
+[sub_resource type="QuadMesh" id="QuadMesh_abkwf"]
+material = SubResource("StandardMaterial3D_2tfkn")
+size = Vector2(0.8, 0.8)
+
+[node name="Cat" type="Area3D"]
+collision_layer = 2
+collision_mask = 3
+script = ExtResource("1_cmxsw")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+shape = SubResource("SphereShape3D_jbaxv")
+
+[node name="CatSprite" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
+mesh = SubResource("QuadMesh_abkwf")
+skeleton = NodePath("")
+
+[node name="FloatTimer" type="Timer" parent="."]
+wait_time = 0.1
+autostart = true

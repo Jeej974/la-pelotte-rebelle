@@ -10,8 +10,14 @@ public partial class VerticalMazeGenerator : Node3D
 	[Export]
 	private float _horizontalSpacing = 10.0f;
 	
-	// 10 labyrinthes avec des tailles croissantes
-	public readonly int[] _mazeSizes = { 5, 7, 9, 11, 13, 15, 17, 19, 21, 23 };
+	// Taille de base et incrément pour la génération infinie
+	private const int BASE_MAZE_SIZE = 5;
+	private const int MAZE_SIZE_INCREMENT = 2;
+	private const int MAX_MAZES = 100; // Pour éviter tout problème de performance
+	
+	// Nous utilisons maintenant une liste dynamique au lieu d'un tableau fixe
+	// Les tailles seront calculées dynamiquement - accessible publiquement
+	public readonly List<int> _mazeSizes = new List<int>();
 	
 	// Configuration des murs
 	[Export]
@@ -37,26 +43,55 @@ public partial class VerticalMazeGenerator : Node3D
 	// Texture pour les murs
 	private Texture2D _wallTexture;
 	
+	// Liste pour suivre quels labyrinthes ont été générés
+	private List<int> _generatedMazes = new List<int>();
+	
+	// Largeur totale des labyrinthes déjà générés
+	private float _totalWidth = 0;
+	
+	// Nombre initial de labyrinthes à générer
+	private const int INITIAL_MAZE_COUNT = 4;
+	
+	// Signal émis quand le joueur entre dans un nouveau labyrinthe
+	[Signal]
+	public delegate void PlayerEnteredMazeEventHandler(int mazeIndex);
+	
+	// Méthode publique pour accéder au nombre total de labyrinthes
+	public int GetTotalMazeCount()
+	{
+		return _mazeSizes.Count;
+	}
+	
+	// Méthode publique pour obtenir la taille d'un labyrinthe spécifique
+	public int GetMazeSize(int mazeIndex)
+	{
+		if (mazeIndex >= 0 && mazeIndex < _mazeSizes.Count)
+		{
+			return _mazeSizes[mazeIndex];
+		}
+		
+		// Si l'index est hors limites mais que nous générons des labyrinthes infinis,
+		// calculer la taille qu'il aurait
+		if (mazeIndex >= 0)
+		{
+			return BASE_MAZE_SIZE + (mazeIndex * MAZE_SIZE_INCREMENT);
+		}
+		
+		return BASE_MAZE_SIZE; // Valeur par défaut
+	}
+	
 	public override void _Ready()
 	{
+		// Initialiser les tailles des labyrinthes
+		GenerateMazeSizes();
+		
 		// Charge la texture du mur
 		_wallTexture = ResourceLoader.Load<Texture2D>("res://assets/wall/wall-texture.png");
 		
-		// Génère les 10 labyrinthes avec disposition horizontale (côte à côte)
-		float totalWidth = 0;
-		
-		for (int i = 0; i < 10; i++)
+		// Générer seulement les premiers labyrinthes au départ
+		for (int i = 0; i < INITIAL_MAZE_COUNT; i++)
 		{
-			var mazeNode = GenerateMaze(i);
-			
-			// Positionne les labyrinthes les uns à côté des autres
-			mazeNode.Position = new Vector3(totalWidth, 0, 0);
-			
-			AddChild(mazeNode);
-			
-			// Ajoute la largeur de ce labyrinthe plus l'espacement pour le suivant
-			int size = _mazeSizes[i];
-			totalWidth += (size * _cellSize) + _horizontalSpacing;
+			GenerateNextMaze(i);
 		}
 		
 		// Ajoute une caméra pour voir l'ensemble des labyrinthes
@@ -64,6 +99,74 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		// Ajoute un éclairage de base
 		AddBasicLighting();
+		
+		// S'abonner au signal de téléportation pour générer le prochain labyrinthe
+		this.Connect("PlayerEnteredMaze", new Callable(this, nameof(OnPlayerEnteredMaze)));
+		
+		GD.Print($"VerticalMazeGenerator initialisé - {INITIAL_MAZE_COUNT} labyrinthes générés");
+	}
+	
+	// Initialiser la liste des tailles de labyrinthe
+	private void GenerateMazeSizes()
+	{
+		_mazeSizes.Clear();
+		
+		for (int i = 0; i < MAX_MAZES; i++)
+		{
+			int size = BASE_MAZE_SIZE + (i * MAZE_SIZE_INCREMENT);
+			_mazeSizes.Add(size);
+		}
+		
+		GD.Print($"Tailles de labyrinthe générées: de {_mazeSizes[0]} à {_mazeSizes[_mazeSizes.Count - 1]}");
+	}
+	
+	// Méthode pour générer un labyrinthe spécifique
+	private void GenerateNextMaze(int mazeIndex)
+	{
+		// Vérifier si ce labyrinthe a déjà été généré
+		if (_generatedMazes.Contains(mazeIndex) || mazeIndex >= MAX_MAZES)
+		{
+			GD.Print($"Labyrinthe {mazeIndex} déjà généré ou index invalide");
+			return;
+		}
+		
+		// S'assurer que nous avons assez d'éléments dans la liste des tailles
+		while (_mazeSizes.Count <= mazeIndex)
+		{
+			int lastSize = _mazeSizes.Count > 0 ? _mazeSizes[_mazeSizes.Count - 1] : BASE_MAZE_SIZE;
+			_mazeSizes.Add(lastSize + MAZE_SIZE_INCREMENT);
+		}
+		
+		// Générer le labyrinthe
+		var mazeNode = GenerateMaze(mazeIndex);
+		
+		// Positionner le labyrinthe
+		mazeNode.Position = new Vector3(_totalWidth, 0, 0);
+		
+		// Important: utiliser CallDeferred pour éviter les erreurs lors de l'ajout du nœud
+		CallDeferred(Node.MethodName.AddChild, mazeNode);
+		
+		// Mettre à jour la largeur totale
+		int size = _mazeSizes[mazeIndex];
+		_totalWidth += (size * _cellSize) + _horizontalSpacing;
+		
+		// Marquer ce labyrinthe comme généré
+		_generatedMazes.Add(mazeIndex);
+		
+		GD.Print($"Labyrinthe {mazeIndex} généré à la position X={_totalWidth - (size * _cellSize) - _horizontalSpacing}, taille={size}x{size}");
+	}
+	
+	// Méthode appelée quand le joueur entre dans un nouveau labyrinthe
+	private void OnPlayerEnteredMaze(int mazeIndex)
+	{
+		// Générer le labyrinthe suivant si nécessaire
+		int nextMazeIndex = mazeIndex + 2; // Générer 2 labyrinthes en avance
+		
+		if (nextMazeIndex < MAX_MAZES && !_generatedMazes.Contains(nextMazeIndex))
+		{
+			GD.Print($"Joueur dans le labyrinthe {mazeIndex}, génération du labyrinthe {nextMazeIndex}");
+			GenerateNextMaze(nextMazeIndex);
+		}
 	}
 	
 	private Node3D GenerateMaze(int mazeIndex)
@@ -201,20 +304,106 @@ public partial class VerticalMazeGenerator : Node3D
 		// Ouvre la sortie (supprime le mur du bas)
 		mazeGrid[exitPos.X, exitPos.Y] &= ~CellWall.Down;
 		
+		// Initialise une structure pour le placement des chats
+		MazeCell[][] cells = new MazeCell[size][];
+		for (int x = 0; x < size; x++)
+		{
+			cells[x] = new MazeCell[size];
+			for (int y = 0; y < size; y++)
+			{
+				cells[x][y] = new MazeCell(new Vector2I(x, y));
+			}
+		}
+		
+		// Place les chats dans le labyrinthe
+		PlaceCatsInMaze(cells, mazeGrid, size, mazeIndex, entrancePos, exitPos);
+		
 		// Construit le labyrinthe 3D
-		BuildMaze3D(mazeNode, mazeGrid, size, entrancePos, exitPos);
+		BuildMaze3D(mazeNode, mazeGrid, cells, size, entrancePos, exitPos);
 		
 		// Ajoute une étiquette pour le labyrinthe
 		AddMazeLabel(mazeNode, mazeIndex, size);
 		
-		// NOUVEAU: Création des zones de téléportation
+		// Création des zones de téléportation
 		CreateTeleportZones(mazeNode, mazeIndex, size, entrancePos, exitPos);
 		
-		// Ajouter un mur à l'entrée du premier labyrinthe
-			AddFirstMazeEntranceWall(mazeNode, size, entrancePos);
-
+		// Ajouter un mur à l'entrée de tous les labyrinthes (MODIFICATION: plus seulement le premier labyrinthe)
+		AddEntranceWall(mazeNode, size, entrancePos);
 		
 		return mazeNode;
+	}
+	
+	// Nouvelle classe pour stocker les informations de cellule
+	private class MazeCell
+	{
+		public Vector2I Position;
+		public bool HasCat;
+		public CatType CatType;
+		
+		public MazeCell(Vector2I pos)
+		{
+			Position = pos;
+			HasCat = false;
+		}
+	}
+	
+	// Nouvelle méthode pour placer les chats dans le labyrinthe
+	private void PlaceCatsInMaze(MazeCell[][] cells, CellWall[,] grid, int size, int mazeIndex, Vector2I entrance, Vector2I exit)
+	{
+		// Déterminer le nombre de chats pour ce labyrinthe
+		int catCount = Cat.GetCatCountForMaze(mazeIndex);
+		
+		// Créer une liste de positions possibles (exclure l'entrée et la sortie)
+		List<Vector2I> availablePositions = new List<Vector2I>();
+		
+		for (int x = 0; x < size; x++)
+		{
+			for (int y = 0; y < size; y++)
+			{
+				Vector2I pos = new Vector2I(x, y);
+				
+				// Exclure l'entrée, la sortie et les cellules adjacentes
+				if (!IsNearEntryOrExit(pos, entrance, exit, 1))
+				{
+					availablePositions.Add(pos);
+				}
+			}
+		}
+		
+		// Mélanger les positions disponibles
+		Random random = new Random();
+		for (int i = 0; i < availablePositions.Count; i++)
+		{
+			int j = random.Next(i, availablePositions.Count);
+			Vector2I temp = availablePositions[i];
+			availablePositions[i] = availablePositions[j];
+			availablePositions[j] = temp;
+		}
+		
+		// Limiter le nombre de chats en fonction des positions disponibles
+		catCount = Math.Min(catCount, availablePositions.Count);
+		
+		// Placer les chats
+		for (int i = 0; i < catCount; i++)
+		{
+			Vector2I pos = availablePositions[i];
+			
+			// Déterminer le type de chat en fonction du niveau
+			CatType catType = Cat.GetRandomType(mazeIndex);
+			
+			// Marquer la cellule comme contenant un chat
+			cells[pos.X][pos.Y].HasCat = true;
+			cells[pos.X][pos.Y].CatType = catType;
+			
+			GD.Print($"Chat {catType} placé en position {pos} dans le labyrinthe {mazeIndex}");
+		}
+	}
+	
+	// Vérifier si une position est proche de l'entrée ou de la sortie
+	private bool IsNearEntryOrExit(Vector2I pos, Vector2I entrance, Vector2I exit, int distance)
+	{
+		return (Math.Abs(pos.X - entrance.X) <= distance && Math.Abs(pos.Y - entrance.Y) <= distance) ||
+			   (Math.Abs(pos.X - exit.X) <= distance && Math.Abs(pos.Y - exit.Y) <= distance);
 	}
 	
 	public Vector2I GetEntrancePosition(int size, int mazeIndex)
@@ -247,7 +436,7 @@ public partial class VerticalMazeGenerator : Node3D
 		return new Vector2I(entrance.X, size - 1);
 	}
 	
-	private void BuildMaze3D(Node3D mazeNode, CellWall[,] grid, int size, Vector2I entrance, Vector2I exit)
+	private void BuildMaze3D(Node3D mazeNode, CellWall[,] grid, MazeCell[][] cells, int size, Vector2I entrance, Vector2I exit)
 	{
 		// Crée le sol
 		CreateFloor(mazeNode, size);
@@ -271,6 +460,12 @@ public partial class VerticalMazeGenerator : Node3D
 				
 				if ((cell & CellWall.Left) != 0)
 					CreateWallSegment(mazeNode, x, y, false, false);
+				
+				// Placer un chat si la cellule en contient un
+				if (cells[x][y].HasCat)
+				{
+					CreateCat(mazeNode, x, y, cells[x][y].CatType);
+				}
 			}
 		}
 		
@@ -282,7 +477,47 @@ public partial class VerticalMazeGenerator : Node3D
 		AddPerimeterWalls(mazeNode, size, entrance, exit);
 	}
 	
-	// Ajoute des murs autour du périmètre du labyrinthe
+	// Nouvelle méthode pour créer un chat dans le labyrinthe
+	private void CreateCat(Node3D mazeNode, int x, int y, CatType catType)
+	{
+		// Charger la scène de chat préfabriquée
+		var catScene = ResourceLoader.Load<PackedScene>("res://scenes/Cat.tscn");
+		if (catScene == null)
+		{
+			GD.PrintErr("Erreur: impossible de charger la scène du chat!");
+			return;
+		}
+		
+		// Instancier la scène
+		var cat = catScene.Instantiate<Cat>();
+		if (cat == null)
+		{
+			GD.PrintErr("Erreur: échec de l'instanciation du chat!");
+			return;
+		}
+		
+		// Configurer le type de chat
+		cat.Set("_catType", (int)catType);
+		
+		// Nommer le chat pour faciliter le débogage
+		cat.Name = $"Cat_{x}_{y}_{catType}";
+		
+		// Positionner le chat dans la cellule
+		cat.Position = new Vector3(
+			x * _cellSize,
+			0.1f, // Légèrement au-dessus du sol
+			y * _cellSize
+		);
+		
+		// Ajouter le chat au nœud du labyrinthe
+		// Utiliser CallDeferred pour éviter les problèmes pendant la génération du labyrinthe
+		mazeNode.CallDeferred(Node.MethodName.AddChild, cat);
+		
+		GD.Print($"Chat {catType} créé en position ({x}, {y})");
+	}
+	
+	// Reste du code...
+	
 	private void AddPerimeterWalls(Node3D mazeNode, int size, Vector2I entrance, Vector2I exit)
 	{
 		// Murs du haut sauf à l'entrée
@@ -511,7 +746,8 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		// 7. Ajouter le sol au nœud du labyrinthe
 		mazeNode.AddChild(staticBody);
-	}	
+	}
+	
 	private void CreateMarker(Node3D mazeNode, int x, int y, Color color)
 	{
 		var marker = new MeshInstance3D();
@@ -536,52 +772,6 @@ public partial class VerticalMazeGenerator : Node3D
 		mazeNode.AddChild(marker);
 	}
 	
-	private void CreateHole(Node3D mazeNode, int x, int y)
-	{
-		var hole = new MeshInstance3D();
-		var cylinderMesh = new CylinderMesh();
-		
-		cylinderMesh.Height = 0.2f;
-		cylinderMesh.BottomRadius = _cellSize * 0.4f;
-		cylinderMesh.TopRadius = _cellSize * 0.4f;
-		
-		hole.Mesh = cylinderMesh;
-		
-		hole.Position = new Vector3(
-			x * _cellSize,
-			-0.1f,
-			y * _cellSize
-		);
-		
-		var material = new StandardMaterial3D();
-		material.AlbedoColor = new Color(0, 0, 0);
-		
-		hole.MaterialOverride = material;
-		mazeNode.AddChild(hole);
-		
-		// Flèche indicatrice
-		var arrow = new MeshInstance3D();
-		var arrowMesh = new PrismMesh();
-		
-		arrowMesh.Size = new Vector3(0.5f, 0.5f, 0.5f);
-		
-		arrow.Mesh = arrowMesh;
-		
-		arrow.Position = new Vector3(
-			x * _cellSize,
-			1.0f,
-			y * _cellSize
-		);
-		
-		arrow.RotationDegrees = new Vector3(180, 0, 0);
-		
-		var arrowMaterial = new StandardMaterial3D();
-		arrowMaterial.AlbedoColor = new Color(1, 1, 0);
-		
-		arrow.MaterialOverride = arrowMaterial;
-		mazeNode.AddChild(arrow);
-	}
-	
 	private void AddMazeLabel(Node3D mazeNode, int mazeIndex, int size)
 	{
 		var label3D = new Label3D();
@@ -603,17 +793,18 @@ public partial class VerticalMazeGenerator : Node3D
 		var camera = new Camera3D();
 		camera.Name = "GlobalCamera";
 		
-		// Calcule la position de la caméra pour voir tous les labyrinthes côte à côte
+		// Calcule la position de la caméra pour voir les premiers labyrinthes
 		float totalWidth = 0;
 		float maxDepth = 0;
 		
-		// Calcule la largeur totale et la profondeur maximale
-		for (int i = 0; i < _mazeSizes.Length; i++)
+		// Calcule la largeur totale et la profondeur maximale pour les premiers labyrinthes
+		int labyrinthsToShow = Math.Min(INITIAL_MAZE_COUNT + 1, _mazeSizes.Count);
+		for (int i = 0; i < labyrinthsToShow; i++)
 		{
 			int size = _mazeSizes[i];
 			totalWidth += (size * _cellSize);
 			
-			if (i < _mazeSizes.Length - 1)
+			if (i < labyrinthsToShow - 1)
 				totalWidth += _horizontalSpacing;
 				
 			maxDepth = Mathf.Max(maxDepth, size * _cellSize);
@@ -654,11 +845,11 @@ public partial class VerticalMazeGenerator : Node3D
 		AddChild(ambientLight);
 	}
 	
-	// Nouvelle méthode pour créer des zones de téléportation aux entrées/sorties
+	// Méthode pour créer des zones de téléportation aux entrées/sorties
 	private void CreateTeleportZones(Node3D mazeNode, int mazeIndex, int size, Vector2I entrancePos, Vector2I exitPos)
 	{
 		// Ne pas créer de zone de sortie pour le dernier labyrinthe
-		bool isLastMaze = mazeIndex == _mazeSizes.Length - 1;
+		bool isLastMaze = mazeIndex == MAX_MAZES - 1;
 		
 		// Créer une zone de téléportation à la sortie (sauf pour le dernier labyrinthe)
 		if (!isLastMaze)
@@ -773,12 +964,17 @@ public partial class VerticalMazeGenerator : Node3D
 		if (body is PlayerBall playerBall)
 		{
 			// S'assurer que nous ne sommes pas au dernier labyrinthe
-			if (currentMazeIndex < _mazeSizes.Length - 1)
+			if (currentMazeIndex < MAX_MAZES - 1)
 			{
 				int nextMazeIndex = currentMazeIndex + 1;
 				
 				// Indiquer au joueur que la téléportation commence
 				playerBall.StartTeleporting();
+				
+				// Générer le prochain labyrinthe s'il n'existe pas déjà
+				// et également générer le labyrinthe suivant de manière préemptive
+				GenerateNextMaze(nextMazeIndex);
+				GenerateNextMaze(nextMazeIndex + 1); // Générer le labyrinthe d'après également
 				
 				// Récupérer la position d'entrée du prochain labyrinthe
 				Node3D nextMaze = GetNodeOrNull<Node3D>($"Maze_{nextMazeIndex}");
@@ -800,8 +996,36 @@ public partial class VerticalMazeGenerator : Node3D
 					
 					// Jouer un son de téléportation
 					PlayTeleportSound(playerBall);
+					
+					// Émettre le signal pour indiquer que le joueur a changé de labyrinthe
+					EmitSignal(SignalName.PlayerEnteredMaze, nextMazeIndex);
+					
+					// Ajouter du temps (à ajuster selon vos besoins)
+					AddTimeToMainScene(nextMazeIndex);
+					
+					GD.Print($"Joueur téléporté vers le labyrinthe {nextMazeIndex}");
+				}
+				else
+				{
+					GD.PrintErr($"Erreur: Labyrinthe {nextMazeIndex} introuvable!");
 				}
 			}
+		}
+	}
+
+	// Méthode pour ajouter du temps au MainScene
+	private void AddTimeToMainScene(int mazeIndex)
+	{
+		// Trouver le MainScene
+		var mainScene = GetTree().Root.GetNode<Node>("MainScene");
+		if (mainScene != null)
+		{
+			// Ajouter du temps en fonction du labyrinthe
+			// Plus le labyrinthe est avancé, plus on donne de temps
+			int bonusTime = 30 + (mazeIndex * 5); // 30s pour le premier, +5s par niveau
+			
+			// Appeler la méthode AddTime du MainScene
+			mainScene.Call("AddTime", bonusTime);
 		}
 	}
 
@@ -823,10 +1047,10 @@ public partial class VerticalMazeGenerator : Node3D
 		audioPlayer.Finished += () => audioPlayer.QueueFree();
 	}
 
-	// Méthode pour ajouter un mur à l'entrée du premier labyrinthe
-	private void AddFirstMazeEntranceWall(Node3D mazeNode, int size, Vector2I entrancePos)
+	// MODIFICATION: Renommer et modifier pour tous les labyrinthes
+	private void AddEntranceWall(Node3D mazeNode, int size, Vector2I entrancePos)
 	{
-		// Créer un mur devant l'entrée du premier labyrinthe
+		// Créer un mur devant l'entrée du labyrinthe
 		var wall = new StaticBody3D();
 		var meshInstance = new MeshInstance3D();
 		var boxMesh = new BoxMesh();
@@ -864,13 +1088,12 @@ public partial class VerticalMazeGenerator : Node3D
 		wall.AddChild(meshInstance);
 		wall.AddChild(collisionShape);
 		
-		// Position du mur (à l'entrée du premier labyrinthe)
+		// Position du mur (à l'entrée du labyrinthe)
 		wall.Position = new Vector3(
 			entrancePos.X * _cellSize,
 			0,
 			entrancePos.Y * _cellSize - _cellSize / 100 - _wallThickness / 100
 		);
-
 		
 		mazeNode.AddChild(wall);
 	}

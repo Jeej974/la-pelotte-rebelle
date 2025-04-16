@@ -4,7 +4,7 @@ using System;
 public partial class PlayerBall : RigidBody3D
 {
 	[Export]
-	private float _moveForce = 70.0f;
+	private float _moveForce = 40.0f;
 	
 	[Export]
 	private float _jumpForce = 10.0f;
@@ -39,6 +39,10 @@ public partial class PlayerBall : RigidBody3D
 	// Contrôles activés/désactivés
 	private bool _controlsEnabled = true;
 	
+	// Nouveau: Chemin vers le modèle de laine
+	[Export]
+	private string _woolBallModelPath = "res://assets/ball of wool/yarn_ball.glb";
+	
 	public override void _Ready()
 	{
 		// Configurer la physique
@@ -49,6 +53,9 @@ public partial class PlayerBall : RigidBody3D
 		// Configurer les collisions
 		CollisionLayer = 1;
 		CollisionMask = 1;
+		
+		// Nouveau: Charger le modèle de balle de laine
+		LoadWoolBallModel();
 		
 		// Obtenir le pivot de suivi de caméra
 		_cameraFollowPivot = GetNode<Node3D>("PlayerFollowPivot");
@@ -80,6 +87,47 @@ public partial class PlayerBall : RigidBody3D
 		CreateMaterials();
 	}
 	
+	// Nouvelle méthode pour charger le modèle de balle de laine
+	private void LoadWoolBallModel()
+	{
+		// Supprimer l'ancien MeshInstance3D s'il existe
+		var oldMesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
+		if (oldMesh != null)
+		{
+			oldMesh.QueueFree();
+		}
+		
+		// Charger le modèle 3D depuis le fichier .glb
+		var packedScene = GD.Load<PackedScene>(_woolBallModelPath);
+		if (packedScene != null)
+		{
+			// Instancier la scène
+			var modelInstance = packedScene.Instantiate<Node3D>();
+			
+			// Ajuster l'échelle si nécessaire
+			modelInstance.Scale = new Vector3(0.5f, 0.5f, 0.5f);
+			
+			// Ajouter le modèle comme enfant
+			AddChild(modelInstance);
+			
+			// Renommer pour faciliter les références
+			modelInstance.Name = "WoolBallModel";
+			
+			GD.Print("Modèle de balle de laine chargé avec succès");
+		}
+		else
+		{
+			GD.PrintErr($"Erreur lors du chargement du modèle: {_woolBallModelPath}");
+			
+			// En cas d'échec, créer un MeshInstance3D avec un SphereMesh comme fallback
+			var meshInstance = new MeshInstance3D();
+			meshInstance.Name = "MeshInstance3D";
+			meshInstance.Mesh = new SphereMesh();
+			meshInstance.Scale = new Vector3(0.5f, 0.5f, 0.5f);
+			AddChild(meshInstance);
+		}
+	}
+	
 	// Mise à jour pour le suivi de caméra
 	public override void _Process(double delta)
 	{
@@ -91,7 +139,38 @@ public partial class PlayerBall : RigidBody3D
 			_cameraFollowPivot.GlobalPosition = GlobalPosition;
 			_cameraFollowPivot.GlobalRotation = Vector3.Zero; // Réinitialiser la rotation pour qu'elle reste fixe
 		}
+		
+		// Faire tourner la balle de laine quand elle se déplace
+		RotateWoolBall(delta);
 	}
+	
+	// Nouvelle méthode pour faire tourner la balle de laine en fonction du mouvement
+	private void RotateWoolBall(double delta)
+	{
+		Node3D woolBall = GetNodeOrNull<Node3D>("WoolBallModel");
+		if (woolBall != null && LinearVelocity.Length() > 0.1f)
+		{
+			// Calculer la rotation en fonction de la vitesse et de la direction
+			Vector3 rotationAxis = Vector3.Up.Cross(LinearVelocity.Normalized());
+			
+			// Vérifier que l'axe de rotation n'est pas un vecteur nul (évite l'erreur de normalisation)
+			if (rotationAxis.LengthSquared() > 0.001f)
+			{
+				float rotationSpeed = LinearVelocity.Length() * 0.5f;
+				
+				// Normaliser l'axe de rotation et appliquer la rotation
+				rotationAxis = rotationAxis.Normalized();
+				woolBall.Rotate(rotationAxis, rotationSpeed * (float)delta);
+			}
+			else
+			{
+				// Si l'axe est presque nul (mouvement vertical), faire une rotation simple autour de l'axe Z
+				woolBall.Rotate(Vector3.Forward, LinearVelocity.Length() * 0.2f * (float)delta);
+			}
+		}
+	}
+	
+	// Le reste du code reste identique...
 	
 	// Nouvelle méthode pour recevoir directement l'ArduinoManager de MainScene
 	public void SetArduinoManager(ArduinoManager manager)
@@ -123,12 +202,8 @@ public partial class PlayerBall : RigidBody3D
 		_teleportMaterial.EmissionEnabled = true;
 		_teleportMaterial.Emission = new Color(0.5f, 0.2f, 0.5f);
 
-		// Appliquer le matériau normal au départ
-		MeshInstance3D ballMesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
-		if (ballMesh != null)
-		{
-			ballMesh.MaterialOverride = _normalMaterial;
-		}
+		// Appliquer le matériau normal au départ - Note: nous n'appliquons plus directement le matériau
+		// car nous utilisons maintenant un modèle GLB qui a son propre matériau
 	}
 	
 	public override void _PhysicsProcess(double delta)
@@ -251,10 +326,15 @@ public partial class PlayerBall : RigidBody3D
 		Freeze = true;
 		
 		// Changer l'apparence pour montrer la téléportation
-		MeshInstance3D ballMesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
-		if (ballMesh != null)
+		// Note: Pour le modèle GLB, nous pourrions appliquer un effet visuel différent
+		var modelNode = GetNodeOrNull<Node3D>("WoolBallModel");
+		if (modelNode != null)
 		{
-			ballMesh.MaterialOverride = _teleportMaterial;
+			// Appliquer un effet visuel pour la téléportation (par exemple, faire scintiller)
+			var tween = CreateTween();
+			tween.TweenProperty(modelNode, "scale", new Vector3(0.6f, 0.6f, 0.6f), 0.3f);
+			tween.TweenProperty(modelNode, "scale", new Vector3(0.4f, 0.4f, 0.4f), 0.3f);
+			tween.SetLoops(3);
 		}
 		
 		// Ajouter un effet de particules pendant la téléportation
@@ -271,11 +351,11 @@ public partial class PlayerBall : RigidBody3D
 		// Dégeler le corps
 		Freeze = false;
 		
-		// Revenir au matériau normal
-		MeshInstance3D ballMesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
-		if (ballMesh != null)
+		// Revenir à l'apparence normale
+		var modelNode = GetNodeOrNull<Node3D>("WoolBallModel");
+		if (modelNode != null)
 		{
-			ballMesh.MaterialOverride = _normalMaterial;
+			modelNode.Scale = new Vector3(0.5f, 0.5f, 0.5f);
 		}
 		
 		// Réactiver le contrôle
