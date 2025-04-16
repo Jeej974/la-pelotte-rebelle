@@ -21,7 +21,7 @@ public partial class MainScene : Node3D
 	private Label _mazeCountLabel;
 	private Label _timeLabel;     // Label pour afficher le temps
 	private Label _catEffectLabel; // Label pour les effets des chats
-	private Label _scoreLabel;     // NOUVEAU: Label pour afficher le score
+	private Label _scoreLabel;     // Label pour afficher le score
 	private Panel _uiPanel;
 	
 	// Texte central pour instructions
@@ -58,6 +58,13 @@ public partial class MainScene : Node3D
 		{ CatType.Siamese, 0 }
 	};
 	private List<ScoreEntry> _highScores = new List<ScoreEntry>();
+	
+	// Audio
+	private AudioStreamPlayer _musicPlayer;
+	private AudioStreamPlayer _soundEffectPlayer;
+	
+	// Champ statique pour l'anti-rebond du bouton
+	private static ulong _lastButtonPressTime = 0;
 	
 	// Struct pour les entrées de score
 	private struct ScoreEntry
@@ -109,6 +116,9 @@ public partial class MainScene : Node3D
 		canvasLayer.Name = "UICanvas";
 		AddChild(canvasLayer);
 		
+		// Créer les lecteurs audio
+		SetupAudio();
+		
 		// Créer un panneau pour l'UI
 		_uiPanel = new Panel();
 		_uiPanel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
@@ -147,7 +157,7 @@ public partial class MainScene : Node3D
 		_catEffectLabel.Visible = false; // Caché par défaut
 		_uiPanel.AddChild(_catEffectLabel);
 		
-		// NOUVEAU: Ajouter une étiquette pour le score
+		// Ajouter une étiquette pour le score
 		_scoreLabel = new Label();
 		_scoreLabel.Text = "Chats: 0 | Score: 0";
 		_scoreLabel.Position = new Vector2(10, 150);
@@ -168,6 +178,30 @@ public partial class MainScene : Node3D
 		
 		// Mettre à jour les étiquettes
 		UpdateUI();
+	}
+	
+	// Configurer l'audio du jeu
+	private void SetupAudio()
+	{
+		// Lecteur pour la musique de fond
+		_musicPlayer = new AudioStreamPlayer();
+		_musicPlayer.Name = "MusicPlayer";
+		_musicPlayer.VolumeDb = -5.0f; // Volume légèrement réduit pour la musique de fond
+		AddChild(_musicPlayer);
+		
+		// Charger et jouer la musique du menu
+		var menuMusic = ResourceLoader.Load<AudioStream>("res://assets/audio/musique_menu.wav");
+		if (menuMusic != null)
+		{
+			_musicPlayer.Stream = menuMusic;
+			_musicPlayer.Play();
+		}
+		
+		// Lecteur pour les effets sonores UI
+		_soundEffectPlayer = new AudioStreamPlayer();
+		_soundEffectPlayer.Name = "SoundEffectPlayer";
+		_soundEffectPlayer.VolumeDb = 0.0f; // Volume normal pour les effets sonores
+		AddChild(_soundEffectPlayer);
 	}
 	
 	// Mise à jour générale de l'interface utilisateur
@@ -263,16 +297,31 @@ public partial class MainScene : Node3D
 			return;
 		}
 		
-		// Obtenir la position d'entrée du premier labyrinthe
-		int size = _mazeGenerator.GetMazeSize(0); // Utiliser la méthode d'accès
-		Vector2I entrancePos = _mazeGenerator.GetEntrancePosition(size, 0);
+		// Trouver le téléporteur d'entrée du premier labyrinthe
+		var entranceTeleporter = firstMaze.FindChild("EntranceTeleporter", true, false) as Teleporter;
 		
 		// Positionner le joueur à l'entrée du premier labyrinthe
-		_playerBall.GlobalPosition = firstMaze.GlobalPosition + new Vector3(
-			entrancePos.X * _mazeGenerator._cellSize,
-			1.0f, // Un peu au-dessus du sol
-			entrancePos.Y * _mazeGenerator._cellSize
-		);
+		if (entranceTeleporter != null)
+		{
+			// Positionner le joueur exactement au-dessus du téléporteur d'entrée
+			Vector3 spawnPosition = entranceTeleporter.GlobalPosition + new Vector3(0, 0.7f, 0);
+			
+			_playerBall.GlobalPosition = spawnPosition;
+			GD.Print("Joueur placé sur le téléporteur d'entrée à la position: " + spawnPosition);
+		}
+		else
+		{
+			// Fallback si le téléporteur n'est pas trouvé
+			int size = _mazeGenerator.GetMazeSize(0);
+			Vector2I entrancePos = _mazeGenerator.GetEntrancePosition(size, 0);
+			
+			_playerBall.GlobalPosition = firstMaze.GlobalPosition + new Vector3(
+				entrancePos.X * _mazeGenerator._cellSize,
+				0.7f, // Légèrement au-dessus du sol
+				entrancePos.Y * _mazeGenerator._cellSize
+			);
+			GD.Print("Joueur placé à l'entrée du labyrinthe (fallback)");
+		}
 		
 		GD.Print("Joueur placé à la position: " + _playerBall.GlobalPosition);
 		
@@ -290,7 +339,7 @@ public partial class MainScene : Node3D
 			_playerBall.DisableControls();
 		}
 	}
-	
+
 	public override void _Process(double delta)
 	{
 		// Vérifier si le bouton Arduino est pressé
@@ -315,6 +364,9 @@ public partial class MainScene : Node3D
 		_remainingTime -= (float)delta;
 		UpdateTimeLabel();
 		
+		// Mettre à jour la taille de la balle en fonction du temps restant
+		UpdatePlayerBallSize();
+		
 		// Vérifier si le temps est écoulé
 		if (_remainingTime <= 0)
 		{
@@ -326,11 +378,31 @@ public partial class MainScene : Node3D
 		CheckMazeTransition();
 	}
 	
+	// Mettre à jour la taille de la balle en fonction du temps restant
+	private void UpdatePlayerBallSize()
+	{
+		if (_playerBall != null)
+		{
+			_playerBall.UpdateSizeBasedOnTime(_remainingTime);
+		}
+	}
+	
 	// Gérer l'appui sur le bouton (Arduino ou clavier)
 	private void HandleButtonPress()
 	{
 		// Afficher un message de débogage
 		GD.Print("Bouton détecté! État du jeu: " + _gameState);
+		
+		// Ajouter un délai anti-rebond pour éviter les doubles appuis
+		if (Time.GetTicksMsec() - _lastButtonPressTime < 500)
+		{
+			GD.Print("Ignorer l'appui sur le bouton (anti-rebond)");
+			return;
+		}
+		_lastButtonPressTime = Time.GetTicksMsec();
+		
+		// Jouer un son de bouton
+		PlayButtonSound();
 		
 		switch (_gameState)
 		{
@@ -340,8 +412,8 @@ public partial class MainScene : Node3D
 				break;
 				
 			case GameState.Playing:
-				// Optionnel: Redémarrer le jeu ou ignorer
-				// RestartGame();
+				// Ne rien faire quand on appuie pendant le jeu
+				// au lieu de mettre en pause ou terminer la partie
 				break;
 				
 			case GameState.GameOver:
@@ -349,6 +421,21 @@ public partial class MainScene : Node3D
 				// Redémarrer le jeu
 				RestartGame();
 				break;
+		}
+	}
+	
+	// Jouer un son quand le bouton est pressé
+	private void PlayButtonSound()
+	{
+		if (_soundEffectPlayer != null)
+		{
+			// Charger le son du bouton
+			var buttonSound = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_chat.wav");
+			if (buttonSound != null)
+			{
+				_soundEffectPlayer.Stream = buttonSound;
+				_soundEffectPlayer.Play();
+			}
 		}
 	}
 	
@@ -361,6 +448,12 @@ public partial class MainScene : Node3D
 		if (_playerBall != null)
 		{
 			_playerBall.EnableControls();
+		}
+		
+		// Arrêter la musique du menu si elle joue
+		if (_musicPlayer != null && _musicPlayer.Playing)
+		{
+			_musicPlayer.Stop();
 		}
 		
 		// Mettre à jour l'interface
@@ -489,18 +582,18 @@ public partial class MainScene : Node3D
 		GD.Print("Game Over - Plus de temps!");
 	}
 	
-	// Jouer un son de game over
+	// Son de game over
 	private void PlayGameOverSound()
 	{
-		var audioPlayer = new AudioStreamPlayer();
-		AddChild(audioPlayer);
-		
-		// Configurer le son (à implémenter avec FMOD)
-		// audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/sounds/game_over.wav");
-		// audioPlayer.Play();
-		
-		// Supprimer le lecteur une fois le son terminé
-		audioPlayer.Finished += () => audioPlayer.QueueFree();
+		if (_soundEffectPlayer != null)
+		{
+			var gameOverSound = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_malus.wav");
+			if (gameOverSound != null)
+			{
+				_soundEffectPlayer.Stream = gameOverSound;
+				_soundEffectPlayer.Play();
+			}
+		}
 	}
 	
 	private void CheckMazeTransition()
@@ -610,6 +703,7 @@ public partial class MainScene : Node3D
 		GD.Print("Jeu terminé avec succès!");
 	}
 	
+	// Son et effets de victoire
 	private void PlayVictoryEffects()
 	{
 		// Créer un système de particules pour célébrer la victoire
@@ -644,14 +738,15 @@ public partial class MainScene : Node3D
 			particles.Emitting = true;
 		}
 		
-		// Jouer un son de victoire (si disponible)
-		var audioPlayer = new AudioStreamPlayer3D();
-		// audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/sounds/victory.wav");
-		audioPlayer.Autoplay = true;
-		
-		if (_playerBall != null)
+		// Jouer un son de victoire
+		if (_soundEffectPlayer != null)
 		{
-			_playerBall.AddChild(audioPlayer);
+			var victorySound = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_bonus.wav");
+			if (victorySound != null)
+			{
+				_soundEffectPlayer.Stream = victorySound;
+				_soundEffectPlayer.Play();
+			}
 		}
 	}
 	
@@ -719,9 +814,46 @@ public partial class MainScene : Node3D
 		_highScores = new List<ScoreEntry>();
 	}
 	
+	// Redémarrer le jeu
 	private void RestartGame()
 	{
+		GD.Print("Tentative de redémarrage du jeu...");
+		
+		// Nettoyer proprement avant de recharger la scène
+		CleanupBeforeRestart();
+		
 		// Recharger la scène pour recommencer
 		GetTree().ReloadCurrentScene();
+	}
+	
+	// Nettoyage avant redémarrage
+	private void CleanupBeforeRestart()
+	{
+		// Arrêter tous les sons en cours
+		if (_musicPlayer != null && _musicPlayer.Playing)
+		{
+			_musicPlayer.Stop();
+		}
+		
+		if (_soundEffectPlayer != null && _soundEffectPlayer.Playing)
+		{
+			_soundEffectPlayer.Stop();
+		}
+		
+		// Libérer les ressources importantes
+		if (_playerBall != null)
+		{
+			_playerBall.QueueFree();
+		}
+		
+		// Annuler tous les timers en cours
+		foreach (Node child in GetChildren())
+		{
+			if (child is Timer timer)
+			{
+				timer.Stop();
+				timer.QueueFree();
+			}
+		}
 	}
 }

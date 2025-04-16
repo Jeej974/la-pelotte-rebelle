@@ -1,0 +1,53 @@
+[gd_scene load_steps=6 format=3 uid="uid://bgjaqoh88adx5"]
+
+[ext_resource type="Script" uid="uid://r8actoqe4sra" path="res://scripts/Teleporter.cs" id="1_pce0k"]
+[ext_resource type="PackedScene" uid="uid://bcv58iu38lh2c" path="res://assets/teleporteur/teleport_gate_of_the_sacred_few.glb" id="2_0t1mg"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_hkmdi"]
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_fkm0e"]
+direction = Vector3(0, 1, 0)
+initial_velocity_min = 0.2
+initial_velocity_max = 0.5
+gravity = Vector3(0, 0.2, 0)
+scale_min = 0.2
+scale_max = 0.4
+color = Color(0, 1, 0, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_d7xb1"]
+radius = 0.05
+height = 0.1
+
+[node name="Teleporter" type="Area3D"]
+script = ExtResource("1_pce0k")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("CapsuleShape3D_hkmdi")
+
+[node name="TeleporterModel" type="Node3D" parent="."]
+transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.05, 0, 0, 0)
+
+[node name="teleport_gate_of_the_sacred_few" parent="TeleporterModel" instance=ExtResource("2_0t1mg")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -27, 0, 0)
+
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+light_color = Color(0, 1, 0, 1)
+light_energy = 2.0
+light_specular = 1.0
+shadow_enabled = true
+omni_range = 3.0
+omni_attenuation = 1.5
+
+[node name="GPUParticles3D" type="GPUParticles3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
+amount = 30
+lifetime = 2.0
+process_material = SubResource("ParticleProcessMaterial_fkm0e")
+draw_pass_1 = SubResource("SphereMesh_d7xb1")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+autoplay = "pulse"
+
+[connection signal="body_entered" from="." to="." method="OnBodyEntered"]

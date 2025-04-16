@@ -40,10 +40,10 @@ public partial class VerticalMazeGenerator : Node3D
 	// Point d'alignement pour tous les labyrinthes
 	private Vector2I _alignmentPoint = new Vector2I(1, 1);
 	
-	// MODIFIÉ: Liste pour stocker les textures de mur disponibles
+	// Liste pour stocker les textures de mur disponibles
 	private List<Texture2D> _wallTextures = new List<Texture2D>();
 	
-	// MODIFIÉ: Dictionnaire pour associer un index de labyrinthe à sa texture
+	// Dictionnaire pour associer un index de labyrinthe à sa texture
 	private Dictionary<int, Texture2D> _mazeWallTextures = new Dictionary<int, Texture2D>();
 	
 	// Liste pour suivre quels labyrinthes ont été générés
@@ -88,7 +88,7 @@ public partial class VerticalMazeGenerator : Node3D
 		// Initialiser les tailles des labyrinthes
 		GenerateMazeSizes();
 		
-		// MODIFIÉ: Charger toutes les textures de mur
+		// Charger toutes les textures de mur
 		LoadWallTextures();
 		
 		// Générer seulement les premiers labyrinthes au départ
@@ -109,7 +109,7 @@ public partial class VerticalMazeGenerator : Node3D
 		GD.Print($"VerticalMazeGenerator initialisé - {INITIAL_MAZE_COUNT} labyrinthes générés");
 	}
 	
-	// NOUVELLE MÉTHODE: Charger toutes les textures de mur
+	// Charger toutes les textures de mur
 	private void LoadWallTextures()
 	{
 		_wallTextures.Clear();
@@ -128,7 +128,7 @@ public partial class VerticalMazeGenerator : Node3D
 			else
 			{
 				// Essayer un format alternatif au cas où
-				texturePath = $"res://assets/wall/Textures/Asset_{i}.png";
+				texturePath = $"res://assets/wall/Textures/Asset {i}.png";
 				texture = ResourceLoader.Load<Texture2D>(texturePath);
 				
 				if (texture != null)
@@ -161,7 +161,7 @@ public partial class VerticalMazeGenerator : Node3D
 		GD.Print($"Total des textures de mur chargées: {_wallTextures.Count}");
 	}
 	
-	// NOUVELLE MÉTHODE: Sélectionner une texture aléatoire pour un labyrinthe
+	// Sélectionner une texture aléatoire pour un labyrinthe
 	private Texture2D GetRandomWallTexture(int mazeIndex)
 	{
 		// Si nous avons déjà sélectionné une texture pour ce labyrinthe, la renvoyer
@@ -411,11 +411,8 @@ public partial class VerticalMazeGenerator : Node3D
 		// Ajoute une étiquette pour le labyrinthe
 		AddMazeLabel(mazeNode, mazeIndex, size);
 		
-		// Création des zones de téléportation
+		// Cette fonction est maintenant vide, mais gardée pour compatibilité
 		CreateTeleportZones(mazeNode, mazeIndex, size, entrancePos, exitPos);
-		
-		// Ajouter un mur à l'entrée de tous les labyrinthes
-		AddEntranceWall(mazeNode, size, entrancePos, mazeIndex);
 		
 		return mazeNode;
 	}
@@ -523,7 +520,137 @@ public partial class VerticalMazeGenerator : Node3D
 		return new Vector2I(entrance.X, size - 1);
 	}
 	
-	// MODIFIÉ: Ajout du paramètre mazeIndex
+	// Méthode pour le marqueur visuel simplifié (utilisée pour l'entrée et la sortie)
+	private void CreateMarker(Node3D mazeNode, int x, int y, Color color, bool isExit = false)
+	{
+		// Utiliser le modèle de téléporteur pour l'entrée et la sortie
+		CreateTeleporterGate(mazeNode, x, y, isExit ? new Color(0, 1, 0) : new Color(1, 0, 0), isExit);
+	}
+
+	// MÉTHODE AMÉLIORÉE: Ajouter un indicateur lumineux pour le téléporteur
+	private void AddStaticIndicator(Node3D teleporter, Color color)
+	{
+		// Créer un point lumineux au-dessus du téléporteur
+		var omniLight = new OmniLight3D();
+		omniLight.Name = "TeleporterLight";
+		
+		// Configuration de la lumière avec une intensité améliorée
+		omniLight.LightColor = color;
+		omniLight.LightEnergy = 2.0f;  // Augmenter l'énergie pour plus de visibilité
+		omniLight.OmniRange = 3.0f;    // Augmenter la portée pour un effet plus visible
+		omniLight.ShadowEnabled = true; // Activer les ombres pour un meilleur effet visuel
+		
+		// Ajouter un effet de clignotement pour attirer l'attention
+		var animationPlayer = new AnimationPlayer();
+		teleporter.AddChild(animationPlayer);
+		
+		var pulseAnimation = new Animation();
+		var trackIdx = pulseAnimation.AddTrack(Animation.TrackType.Value);
+		pulseAnimation.TrackSetPath(trackIdx, "%TeleporterLight:light_energy");
+		
+		// Animation de pulsation de la lumière (sur 2 secondes)
+		pulseAnimation.TrackInsertKey(trackIdx, 0.0f, 2.0f);
+		pulseAnimation.TrackInsertKey(trackIdx, 1.0f, 4.0f);
+		pulseAnimation.TrackInsertKey(trackIdx, 2.0f, 2.0f);
+		pulseAnimation.LoopMode = Animation.LoopModeEnum.Linear;
+		
+		// Créer une librairie d'animation
+		var animLib = new AnimationLibrary();
+		animLib.AddAnimation("pulse", pulseAnimation);
+		
+		// Ajouter la librairie au player d'animation
+		animationPlayer.AddAnimationLibrary("", animLib);
+		
+		// Positionner la lumière au-dessus du téléporteur
+		omniLight.Position = new Vector3(0, 2.0f, 0);
+		
+		// Ajouter la lumière au téléporteur
+		teleporter.AddChild(omniLight);
+		
+		// Démarrer l'animation
+		animationPlayer.Play("pulse");
+		
+		// Ajouter également quelques particules pour rendre le téléporteur plus visible
+		AddTeleporterParticles(teleporter, color);
+	}
+
+	// Méthode pour appliquer une couleur au téléporteur
+	private void ApplyColorToTeleporter(Node3D teleporter, Color color)
+	{
+		// Rechercher tous les MeshInstance3D dans le modèle
+		foreach (Node child in teleporter.GetChildren())
+		{
+			ApplyColorToNode(child, color);
+		}
+	}
+
+	// Méthode récursive pour appliquer une couleur à tous les meshes
+	private void ApplyColorToNode(Node node, Color color)
+	{
+		if (node is MeshInstance3D meshInstance)
+		{
+			// Créer un nouveau matériau basé sur le matériau existant
+			Material existingMaterial = meshInstance.GetActiveMaterial(0);
+			StandardMaterial3D material = new StandardMaterial3D();
+			
+			// Paramètres de base
+			material.AlbedoColor = color;
+			material.Metallic = 0.5f;
+			material.Roughness = 0.3f;
+			material.EmissionEnabled = true;
+			material.Emission = new Color(color.R, color.G, color.B, 0.5f);
+			material.EmissionEnergyMultiplier = 0.3f;
+			
+			// Appliquer le matériau
+			meshInstance.MaterialOverride = material;
+		}
+		
+		// Appliquer récursivement aux enfants
+		foreach (Node child in node.GetChildren())
+		{
+			ApplyColorToNode(child, color);
+		}
+	}
+
+	// Amélioration des particules du téléporteur
+	private void AddTeleporterParticles(Node3D teleporter, Color color)
+	{
+		var particles = new GpuParticles3D();
+		particles.Name = "TeleporterParticles";
+		
+		// Configurer les particules
+		var particlesMaterial = new ParticleProcessMaterial();
+		particlesMaterial.Direction = new Vector3(0, 1, 0);
+		particlesMaterial.Spread = 45.0f;
+		particlesMaterial.InitialVelocityMin = 0.2f;
+		particlesMaterial.InitialVelocityMax = 0.5f;
+		particlesMaterial.Color = color;
+		particlesMaterial.Gravity = new Vector3(0, 0.2f, 0);
+		particlesMaterial.ScaleMin = 0.2f;
+		particlesMaterial.ScaleMax = 0.4f;
+		
+		particles.ProcessMaterial = particlesMaterial;
+		
+		// Configurer le mesh pour les particules
+		var sphereMesh = new SphereMesh();
+		sphereMesh.Radius = 0.05f;
+		sphereMesh.Height = 0.1f;
+		particles.DrawPass1 = sphereMesh;
+		
+		// Régler les paramètres d'émission
+		particles.Amount = 30;          // Plus de particules
+		particles.Lifetime = 2.0f;
+		particles.OneShot = false;
+		particles.Explosiveness = 0.1f;
+		particles.FixedFps = 30;        // Fixer les FPS pour améliorer les performances
+		
+		// Positionner les particules au centre du téléporteur
+		particles.Position = new Vector3(0, 1.5f, 0);
+		
+		teleporter.AddChild(particles);
+	}
+	
+	// BuildMaze3D avec les ajustements pour améliorer les téléporteurs et les murs
 	private void BuildMaze3D(Node3D mazeNode, CellWall[,] grid, MazeCell[][] cells, int size, Vector2I entrance, Vector2I exit, int mazeIndex)
 	{
 		// Crée le sol
@@ -559,11 +686,133 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		// Ajoute les marqueurs d'entrée et de sortie
 		CreateMarker(mazeNode, entrance.X, entrance.Y, new Color(0, 1, 0)); // Vert pour l'entrée
-		CreateMarker(mazeNode, exit.X, exit.Y, new Color(1, 0, 0)); // Rouge pour la sortie
+		CreateMarker(mazeNode, exit.X, exit.Y, new Color(1, 0, 0), true); // Rouge pour la sortie
 		
 		// Ajoute des murs autour du périmètre du labyrinthe
 		AddPerimeterWalls(mazeNode, size, entrance, exit, mazeIndex);
+		
+		// Ajoute les murs d'entrée et de sortie
+		AddMazeWalls(mazeNode, size, entrance, exit, mazeIndex);
 	}
+	// Méthode pour ajouter des murs d'entrée et de sortie sur TOUS les labyrinthes
+	private void AddMazeWalls(Node3D mazeNode, int size, Vector2I entrance, Vector2I exit, int mazeIndex)
+	{
+		// Ajouter un mur d'entrée pour tous les labyrinthes
+		AddEntranceWall(mazeNode, size, entrance, mazeIndex);
+		
+		// Ajouter un mur de sortie pour tous les labyrinthes
+		AddExitWall(mazeNode, size, exit, mazeIndex);
+	}
+
+	// Méthode pour ajouter un mur à l'entrée du labyrinthe
+	private void AddEntranceWall(Node3D mazeNode, int size, Vector2I entrancePos, int mazeIndex)
+	{
+		// Créer un mur devant l'entrée du labyrinthe
+		var wall = new StaticBody3D();
+		var meshInstance = new MeshInstance3D();
+		var boxMesh = new BoxMesh();
+		
+		// Taille du mur
+		boxMesh.Size = new Vector3(_cellSize, _wallHeight, _wallThickness);
+		
+		// Positionner le mur juste devant l'entrée
+		meshInstance.Position = new Vector3(0, _wallHeight / 2, -_cellSize / 2 - _wallThickness / 2);
+		
+		meshInstance.Mesh = boxMesh;
+		
+		// Utiliser la texture spécifique à ce labyrinthe
+		var material = new StandardMaterial3D();
+		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
+		
+		if (wallTexture != null)
+		{
+			material.AlbedoTexture = wallTexture;
+			material.Uv1Scale = new Vector3(2.0f, 1.0f, 1.0f);
+		}
+		else
+		{
+			material.AlbedoColor = new Color(0.5f, 0.3f, 0.2f); // Marron
+		}
+		
+		meshInstance.MaterialOverride = material;
+		
+		// Collision
+		var collisionShape = new CollisionShape3D();
+		var boxShape = new BoxShape3D();
+		boxShape.Size = boxMesh.Size;
+		collisionShape.Shape = boxShape;
+		collisionShape.Position = meshInstance.Position;
+		
+		wall.AddChild(meshInstance);
+		wall.AddChild(collisionShape);
+		
+		// Position du mur (à l'entrée du labyrinthe)
+		wall.Position = new Vector3(
+			entrancePos.X * _cellSize,
+			0,
+			entrancePos.Y * _cellSize
+		);
+		
+		mazeNode.AddChild(wall);
+		
+		GD.Print($"Mur d'entrée ajouté au labyrinthe {mazeIndex}");
+	}
+
+	// Méthode pour ajouter un mur à la sortie du labyrinthe
+	private void AddExitWall(Node3D mazeNode, int size, Vector2I exitPos, int mazeIndex)
+	{
+		// Créer un mur après la sortie du labyrinthe
+		var wall = new StaticBody3D();
+		var meshInstance = new MeshInstance3D();
+		var boxMesh = new BoxMesh();
+		
+		// Taille du mur
+		boxMesh.Size = new Vector3(_cellSize, _wallHeight, _wallThickness);
+		
+		// Positionner le mur juste après la sortie
+		meshInstance.Position = new Vector3(0, _wallHeight / 2, _cellSize / 2 + _wallThickness / 2);
+		
+		meshInstance.Mesh = boxMesh;
+		
+		// Utiliser la texture spécifique à ce labyrinthe
+		var material = new StandardMaterial3D();
+		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
+		
+		if (wallTexture != null)
+		{
+			material.AlbedoTexture = wallTexture;
+			material.Uv1Scale = new Vector3(2.0f, 1.0f, 1.0f);
+		}
+		else
+		{
+			material.AlbedoColor = new Color(0.5f, 0.3f, 0.2f); // Marron
+		}
+		
+		meshInstance.MaterialOverride = material;
+		
+		// Collision
+		var collisionShape = new CollisionShape3D();
+		var boxShape = new BoxShape3D();
+		boxShape.Size = boxMesh.Size;
+		collisionShape.Shape = boxShape;
+		collisionShape.Position = meshInstance.Position;
+		
+		wall.AddChild(meshInstance);
+		wall.AddChild(collisionShape);
+		
+		// Position du mur (à la sortie du labyrinthe)
+		wall.Position = new Vector3(
+			exitPos.X * _cellSize,
+			0,
+			exitPos.Y * _cellSize
+		);
+		
+		mazeNode.AddChild(wall);
+		
+		GD.Print($"Mur de sortie ajouté au labyrinthe {mazeIndex}");
+	}
+	
+	
 	
 	// Nouvelle méthode pour créer un chat dans le labyrinthe
 	private void CreateCat(Node3D mazeNode, int x, int y, CatType catType)
@@ -604,7 +853,6 @@ public partial class VerticalMazeGenerator : Node3D
 		GD.Print($"Chat {catType} créé en position ({x}, {y})");
 	}
 	
-	// MODIFIÉ: Ajout du paramètre mazeIndex
 	private void AddPerimeterWalls(Node3D mazeNode, int size, Vector2I entrance, Vector2I exit, int mazeIndex)
 	{
 		// Murs du haut sauf à l'entrée
@@ -638,7 +886,6 @@ public partial class VerticalMazeGenerator : Node3D
 		}
 	}
 	
-	// MODIFIÉ: Ajout du paramètre mazeIndex
 	private void CreateWallSegment(Node3D mazeNode, int x, int y, bool horizontal, bool positive, int mazeIndex)
 	{
 		var wall = new StaticBody3D();
@@ -678,7 +925,7 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		meshInstance.Mesh = boxMesh;
 		
-		// MODIFIÉ: Utiliser la texture spécifique à ce labyrinthe
+		// Utiliser la texture spécifique à ce labyrinthe
 		var material = new StandardMaterial3D();
 		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
 		
@@ -715,7 +962,6 @@ public partial class VerticalMazeGenerator : Node3D
 		mazeNode.AddChild(wall);
 	}
 	
-	// MODIFIÉ: Ajout du paramètre mazeIndex
 	private void CreateBoundaryWall(Node3D mazeNode, int x, int y, bool horizontal, bool positive, int mazeIndex)
 	{
 		var wall = new StaticBody3D();
@@ -755,7 +1001,7 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		meshInstance.Mesh = boxMesh;
 		
-		// MODIFIÉ: Utiliser la texture spécifique à ce labyrinthe
+		// Utiliser la texture spécifique à ce labyrinthe
 		var material = new StandardMaterial3D();
 		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
 		
@@ -840,30 +1086,6 @@ public partial class VerticalMazeGenerator : Node3D
 		mazeNode.AddChild(staticBody);
 	}
 	
-	private void CreateMarker(Node3D mazeNode, int x, int y, Color color)
-	{
-		var marker = new MeshInstance3D();
-		var cubeMesh = new BoxMesh();
-		
-		cubeMesh.Size = new Vector3(0.5f, 0.5f, 0.5f);
-		
-		marker.Mesh = cubeMesh;
-		
-		marker.Position = new Vector3(
-			x * _cellSize,
-			0.25f,
-			y * _cellSize
-		);
-		
-		var material = new StandardMaterial3D();
-		material.AlbedoColor = color;
-		material.EmissionEnabled = true;
-		material.Emission = color;
-		
-		marker.MaterialOverride = material;
-		mazeNode.AddChild(marker);
-	}
-	
 	private void AddMazeLabel(Node3D mazeNode, int mazeIndex, int size)
 	{
 		var label3D = new Label3D();
@@ -936,123 +1158,73 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		AddChild(ambientLight);
 	}
-	
-	// Méthode pour créer des zones de téléportation aux entrées/sorties
-	private void CreateTeleportZones(Node3D mazeNode, int mazeIndex, int size, Vector2I entrancePos, Vector2I exitPos)
-	{
-		// Ne pas créer de zone de sortie pour le dernier labyrinthe
-		bool isLastMaze = mazeIndex == MAX_MAZES - 1;
-		
-		// Créer une zone de téléportation à la sortie (sauf pour le dernier labyrinthe)
-		if (!isLastMaze)
-		{
-			var exitZone = new Area3D();
-			exitZone.Name = $"TeleportZone_Exit_{mazeIndex}";
-			
-			// CollisionShape3D pour l'aire de détection
-			var collisionShape = new CollisionShape3D();
-			var boxShape = new BoxShape3D();
-			
-			// Taille de la zone de détection (un peu plus petite que la cellule)
-			boxShape.Size = new Vector3(_cellSize * 0.8f, 1.0f, _cellSize * 0.8f);
-			collisionShape.Shape = boxShape;
-			
-			exitZone.AddChild(collisionShape);
-			
-			// Positionner la zone à la sortie
-			exitZone.Position = new Vector3(
-				exitPos.X * _cellSize,
-				0.5f,  // Légèrement au-dessus du sol
-				exitPos.Y * _cellSize
-			);
-			
-			// Ajouter un signal pour détecter quand le joueur entre dans la zone
-			exitZone.BodyEntered += (body) => OnBodyEnteredExitZone(body, mazeIndex);
-			
-			mazeNode.AddChild(exitZone);
-			
-			// Ajouter un visuel pour la zone de téléportation de sortie
-			AddTeleportZoneVisual(exitZone, new Color(0.3f, 0.8f, 1.0f, 0.3f));
-		}
-		
-		// Créer une zone de téléportation à l'entrée (sauf pour le premier labyrinthe)
-		if (mazeIndex > 0)
-		{
-			var entranceZone = new Area3D();
-			entranceZone.Name = $"TeleportZone_Entrance_{mazeIndex}";
-			
-			// CollisionShape3D pour l'aire de détection
-			var collisionShape = new CollisionShape3D();
-			var boxShape = new BoxShape3D();
-			
-			// Taille de la zone de détection (un peu plus petite que la cellule)
-			boxShape.Size = new Vector3(_cellSize * 0.8f, 1.0f, _cellSize * 0.8f);
-			collisionShape.Shape = boxShape;
-			
-			entranceZone.AddChild(collisionShape);
-			
-			// Positionner la zone à l'entrée
-			entranceZone.Position = new Vector3(
-				entrancePos.X * _cellSize,
-				0.5f,  // Légèrement au-dessus du sol
-				entrancePos.Y * _cellSize
-			);
-			
-			mazeNode.AddChild(entranceZone);
-			
-			// Ajouter un visuel pour la zone de téléportation d'entrée
-			AddTeleportZoneVisual(entranceZone, new Color(0.8f, 0.3f, 1.0f, 0.3f));
-		}
-	}
 
-	// Ajouter un visuel pour les zones de téléportation
+	// Ajouter un visuel pour les zones de téléportation - Maintenant inutilisé
 	private void AddTeleportZoneVisual(Area3D zone, Color color)
 	{
-		var visualizer = new MeshInstance3D();
-		var cylinderMesh = new CylinderMesh();
-		
-		cylinderMesh.Height = 0.1f;
-		cylinderMesh.BottomRadius = _cellSize * 0.4f;
-		cylinderMesh.TopRadius = _cellSize * 0.4f;
-		
-		visualizer.Mesh = cylinderMesh;
-		
-		// Matériau semi-transparent
-		var material = new StandardMaterial3D();
-		material.AlbedoColor = color;
-		material.EmissionEnabled = true;
-		material.Emission = new Color(color.R, color.G, color.B, 0.5f);
-		
-		visualizer.MaterialOverride = material;
-		
-		// Faire tourner le visuel pour effet d'animation
-		var animation = new AnimationPlayer();
-		zone.AddChild(animation);
-		
-		var rotationAnimation = new Animation();
-		var trackIdx = rotationAnimation.AddTrack(Animation.TrackType.Value);
-		rotationAnimation.TrackSetPath(trackIdx, ".:rotation:y");
-		
-		// Animation de rotation sur 2 secondes
-		rotationAnimation.TrackInsertKey(trackIdx, 0.0f, 0.0f);
-		rotationAnimation.TrackInsertKey(trackIdx, 2.0f, Mathf.Tau); // 2*PI (rotation complète)
-		rotationAnimation.LoopMode = Animation.LoopModeEnum.Linear;
-		
-		// Créer une librairie d'animation
-		var animLib = new AnimationLibrary();
-		animLib.AddAnimation("rotate", rotationAnimation);
-		
-		// Ajouter la librairie au player d'animation
-		animation.AddAnimationLibrary("", animLib);
-		animation.Play("rotate");
-		
-		zone.AddChild(visualizer);
+		// Cette méthode est conservée pour compatibilité mais n'est plus utilisée
+		// Les téléporteurs eux-mêmes servent maintenant de zone de détection
 	}
-
-	// Gestionnaire d'événement pour la téléportation à la sortie d'un labyrinthe
-	private void OnBodyEnteredExitZone(Node3D body, int currentMazeIndex)
+	// Modification de la méthode CreateTeleporterGate pour utiliser la scène Teleporter
+	private void CreateTeleporterGate(Node3D mazeNode, int x, int y, Color color, bool isExit, int mazeIndex = 0)
 	{
-		// Vérifier si c'est le joueur qui entre dans la zone
+		// Charger la scène du téléporteur
+		var teleporterScene = ResourceLoader.Load<PackedScene>("res://scenes/Teleporter.tscn");
+		if (teleporterScene == null)
+		{
+			GD.PrintErr("Erreur: impossible de charger la scène du téléporteur!");
+			return;
+		}
+		
+		// Instancier la scène
+		var teleporter = teleporterScene.Instantiate<Teleporter>();
+		if (teleporter == null)
+		{
+			GD.PrintErr("Erreur: échec de l'instanciation du téléporteur!");
+			return;
+		}
+		
+		// Configurer le téléporteur
+		teleporter.Name = isExit ? "ExitTeleporter" : "EntranceTeleporter";
+		teleporter.IsExit = isExit;
+		teleporter.TeleporterColor = color;
+		teleporter.MazeIndex = mazeIndex;
+		
+		// Ajustement de la position Y selon qu'il s'agit d'un téléporteur d'entrée ou de sortie
+		float yOffset = isExit ? -0.5f : 0.5f;
+		
+		// Positionner le téléporteur précisément à l'emplacement d'entrée/sortie avec l'ajustement Y
+		teleporter.Position = new Vector3(
+			x * _cellSize, 
+			-0.25f, 
+			y * _cellSize + yOffset // Ajout de l'offset pour mieux placer dans le labyrinthe
+		);
+		
+		// Orienter correctement
+		if (isExit)
+		{
+			teleporter.RotationDegrees = new Vector3(0, 180, 0); // vers le sud
+		}
+		else
+		{
+			teleporter.RotationDegrees = new Vector3(0, 0, 0); // vers le nord
+		}
+		
+		// Si c'est un téléporteur de sortie, connecter le signal
+		if (isExit)
+		{
+			teleporter.Connect("PlayerEnteredExitTeleporter", new Callable(this, nameof(OnPlayerEnteredExitTeleporter)));
+		}
+		
+		// Ajouter le téléporteur au labyrinthe
+		mazeNode.AddChild(teleporter);
+		
+		GD.Print($"Téléporteur {(isExit ? "de sortie" : "d entrée")} créé à la position {teleporter.Position} pour le labyrinthe {mazeIndex}");
+	}
+	// Mise à jour de la méthode OnPlayerEnteredExitTeleporter pour utiliser le signal du téléporteur
+	private void OnPlayerEnteredExitTeleporter(Node3D body, int currentMazeIndex)
+	{
+		// Vérifier si c'est le joueur qui entre en contact
 		if (body is PlayerBall playerBall)
 		{
 			// S'assurer que nous ne sommes pas au dernier labyrinthe
@@ -1064,7 +1236,6 @@ public partial class VerticalMazeGenerator : Node3D
 				playerBall.StartTeleporting();
 				
 				// Générer le prochain labyrinthe s'il n'existe pas déjà
-				// et également générer le labyrinthe suivant de manière préemptive
 				GenerateNextMaze(nextMazeIndex);
 				GenerateNextMaze(nextMazeIndex + 1); // Générer le labyrinthe d'après également
 				
@@ -1072,30 +1243,35 @@ public partial class VerticalMazeGenerator : Node3D
 				Node3D nextMaze = GetNodeOrNull<Node3D>($"Maze_{nextMazeIndex}");
 				if (nextMaze != null)
 				{
-					// Calculer la position d'entrée du prochain labyrinthe
-					int nextSize = _mazeSizes[nextMazeIndex];
-					Vector2I entrancePos = GetEntrancePosition(nextSize, nextMazeIndex);
+					// Trouver le téléporteur d'entrée du prochain labyrinthe
+					Teleporter entranceTeleporter = nextMaze.FindChild("EntranceTeleporter", true, false) as Teleporter;
 					
-					// Téléporter le joueur
-					playerBall.GlobalPosition = nextMaze.GlobalPosition + new Vector3(
-						entrancePos.X * _cellSize,
-						1.0f,  // Légèrement au-dessus du sol
-						entrancePos.Y * _cellSize
-					);
-					
-					// Indiquer au joueur que la téléportation est terminée
-					playerBall.FinishTeleporting();
-					
-					// Jouer un son de téléportation
-					PlayTeleportSound(playerBall);
-					
-					// Émettre le signal pour indiquer que le joueur a changé de labyrinthe
-					EmitSignal(SignalName.PlayerEnteredMaze, nextMazeIndex);
-					
-					// Ajouter du temps (à ajuster selon vos besoins)
-					AddTimeToMainScene(nextMazeIndex);
-					
-					GD.Print($"Joueur téléporté vers le labyrinthe {nextMazeIndex}");
+					if (entranceTeleporter != null)
+					{
+						// Téléporter le joueur directement au-dessus du téléporteur d'entrée
+						Vector3 teleportPosition = entranceTeleporter.GlobalPosition + new Vector3(0, 0.7f, 0);
+						
+						// Téléporter le joueur
+						playerBall.GlobalPosition = teleportPosition;
+						
+						// Terminer la téléportation
+						playerBall.FinishTeleporting();
+						
+						// Jouer un son de téléportation
+						PlayTeleportSound(playerBall);
+						
+						// Émettre le signal pour indiquer que le joueur a changé de labyrinthe
+						EmitSignal(SignalName.PlayerEnteredMaze, nextMazeIndex);
+						
+						// Ajouter du temps
+						AddTimeToMainScene(nextMazeIndex);
+						
+						GD.Print($"Joueur téléporté vers le labyrinthe {nextMazeIndex} à la position {teleportPosition}");
+					}
+					else
+					{
+						GD.PrintErr($"Téléporteur d'entrée non trouvé dans le labyrinthe {nextMazeIndex}");
+					}
 				}
 				else
 				{
@@ -1103,6 +1279,75 @@ public partial class VerticalMazeGenerator : Node3D
 				}
 			}
 		}
+	}
+	
+	// Mise à jour de la méthode de téléportation pour un meilleur alignement
+	private void OnBodyEnteredExitTeleporter(Node3D body, int currentMazeIndex)
+	{
+		// Vérifier si c'est le joueur qui entre en contact
+		if (body is PlayerBall playerBall)
+		{
+			// S'assurer que nous ne sommes pas au dernier labyrinthe
+			if (currentMazeIndex < MAX_MAZES - 1)
+			{
+				int nextMazeIndex = currentMazeIndex + 1;
+				
+				// Indiquer au joueur que la téléportation commence
+				playerBall.StartTeleporting();
+				
+				// Générer le prochain labyrinthe s'il n'existe pas déjà
+				GenerateNextMaze(nextMazeIndex);
+				GenerateNextMaze(nextMazeIndex + 1); // Générer le labyrinthe d'après également
+				
+				// Récupérer la position d'entrée du prochain labyrinthe
+				Node3D nextMaze = GetNodeOrNull<Node3D>($"Maze_{nextMazeIndex}");
+				if (nextMaze != null)
+				{
+					// Trouver le téléporteur d'entrée du prochain labyrinthe
+					Node3D entranceTeleporter = nextMaze.FindChild("EntranceTeleporter", true, false) as Node3D;
+					
+					if (entranceTeleporter != null)
+					{
+						// Téléporter le joueur directement au-dessus du téléporteur d'entrée
+						// Uniquement décalage vertical pour éviter les collisions
+						Vector3 teleportPosition = entranceTeleporter.GlobalPosition + new Vector3(0, 0.7f, 0);
+						
+						// Téléporter le joueur
+						playerBall.GlobalPosition = teleportPosition;
+						
+						// Terminer la téléportation
+						playerBall.FinishTeleporting();
+						
+						// Jouer un son de téléportation
+						PlayTeleportSound(playerBall);
+						
+						// Émettre le signal pour indiquer que le joueur a changé de labyrinthe
+						EmitSignal(SignalName.PlayerEnteredMaze, nextMazeIndex);
+						
+						// Ajouter du temps
+						AddTimeToMainScene(nextMazeIndex);
+						
+						GD.Print($"Joueur téléporté vers le labyrinthe {nextMazeIndex} à la position {teleportPosition}");
+					}
+					else
+					{
+						GD.PrintErr($"Téléporteur d'entrée non trouvé dans le labyrinthe {nextMazeIndex}");
+					}
+				}
+				else
+				{
+					GD.PrintErr($"Erreur: Labyrinthe {nextMazeIndex} introuvable!");
+				}
+			}
+		}
+	}
+
+
+	// Cette fonction est maintenant vide car nous utilisons directement les téléporteurs
+	// pour la détection des collisions. Conservée pour éviter de casser les appels existants
+	private void CreateTeleportZones(Node3D mazeNode, int mazeIndex, int size, Vector2I entrancePos, Vector2I exitPos)
+	{
+		// Ne rien faire - les téléporteurs gèrent directement la détection
 	}
 
 	// Méthode pour ajouter du temps au MainScene
@@ -1127,8 +1372,8 @@ public partial class VerticalMazeGenerator : Node3D
 		var audioPlayer = new AudioStreamPlayer3D();
 		target.AddChild(audioPlayer);
 		
-		// Vous devrez créer/charger un son de téléportation
-		// audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/sounds/teleport.wav");
+		// Charger le son de téléportation
+		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_teleporteur.wav");
 		
 		// Configuration du son
 		audioPlayer.VolumeDb = 5.0f; // Volume
@@ -1137,58 +1382,5 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		// Supprimer le lecteur une fois le son terminé
 		audioPlayer.Finished += () => audioPlayer.QueueFree();
-	}
-
-	// MODIFIÉ: Ajout du paramètre mazeIndex
-	private void AddEntranceWall(Node3D mazeNode, int size, Vector2I entrancePos, int mazeIndex)
-	{
-		// Créer un mur devant l'entrée du labyrinthe
-		var wall = new StaticBody3D();
-		var meshInstance = new MeshInstance3D();
-		var boxMesh = new BoxMesh();
-		
-		// Placer le mur juste devant l'entrée
-		float offsetZ = -1.0f; // Un peu devant l'entrée
-		
-		// Taille du mur
-		boxMesh.Size = new Vector3(_cellSize, _wallHeight, _wallThickness);
-		
-		meshInstance.Mesh = boxMesh;
-		meshInstance.Position = new Vector3(0, _wallHeight / 2, offsetZ);
-		
-		// MODIFIÉ: Utiliser la texture spécifique à ce labyrinthe
-		var material = new StandardMaterial3D();
-		Texture2D wallTexture = GetRandomWallTexture(mazeIndex);
-		
-		if (wallTexture != null)
-		{
-			material.AlbedoTexture = wallTexture;
-			material.Uv1Scale = new Vector3(2.0f, 1.0f, 1.0f);
-		}
-		else
-		{
-			material.AlbedoColor = new Color(0.5f, 0.3f, 0.2f); // Marron
-		}
-		
-		meshInstance.MaterialOverride = material;
-		
-		// Collision
-		var collisionShape = new CollisionShape3D();
-		var boxShape = new BoxShape3D();
-		boxShape.Size = boxMesh.Size;
-		collisionShape.Shape = boxShape;
-		collisionShape.Position = meshInstance.Position;
-		
-		wall.AddChild(meshInstance);
-		wall.AddChild(collisionShape);
-		
-		// Position du mur (à l'entrée du labyrinthe)
-		wall.Position = new Vector3(
-			entrancePos.X * _cellSize,
-			0,
-			entrancePos.Y * _cellSize - _cellSize / 100 - _wallThickness / 100
-		);
-		
-		mazeNode.AddChild(wall);
 	}
 }

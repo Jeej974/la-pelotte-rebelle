@@ -43,6 +43,11 @@ public partial class PlayerBall : RigidBody3D
 	[Export]
 	private string _woolBallModelPath = "res://assets/ball of wool/yarn_ball.glb";
 	
+	// NOUVEAU: Variables pour le redimensionnement basé sur le temps
+	private Node3D _woolBallModel;
+	private Vector3 _originalScale = new Vector3(0.5f, 0.5f, 0.5f);
+	private float _maxGameTime = 100.0f; // Temps maximum pour l'échelle complète
+	
 	public override void _Ready()
 	{
 		// Configurer la physique
@@ -68,12 +73,12 @@ public partial class PlayerBall : RigidBody3D
 			RemoveChild(_camera);
 			_cameraFollowPivot.AddChild(_camera);
 			
-			// Configurer la position et rotation de la caméra
-			_camera.Position = _cameraOffset;
-			_camera.RotationDegrees = _cameraRotation;
+			// Configurer la position et rotation de la caméra pour qu'elle soit directement au-dessus
+			_camera.Position = new Vector3(0, 10, 0); // 10 unités au-dessus
+			_camera.RotationDegrees = new Vector3(-90, 0, 0); // Regarder directement vers le bas
 			_camera.Current = true;
 			
-			GD.Print("Caméra déplacée vers le pivot et configurée");
+			GD.Print("Caméra positionnée directement au-dessus du joueur");
 		}
 		else
 		{
@@ -102,16 +107,16 @@ public partial class PlayerBall : RigidBody3D
 		if (packedScene != null)
 		{
 			// Instancier la scène
-			var modelInstance = packedScene.Instantiate<Node3D>();
+			_woolBallModel = packedScene.Instantiate<Node3D>();
 			
 			// Ajuster l'échelle si nécessaire
-			modelInstance.Scale = new Vector3(0.5f, 0.5f, 0.5f);
+			_woolBallModel.Scale = _originalScale;
 			
 			// Ajouter le modèle comme enfant
-			AddChild(modelInstance);
+			AddChild(_woolBallModel);
 			
 			// Renommer pour faciliter les références
-			modelInstance.Name = "WoolBallModel";
+			_woolBallModel.Name = "WoolBallModel";
 			
 			GD.Print("Modèle de balle de laine chargé avec succès");
 		}
@@ -123,26 +128,69 @@ public partial class PlayerBall : RigidBody3D
 			var meshInstance = new MeshInstance3D();
 			meshInstance.Name = "MeshInstance3D";
 			meshInstance.Mesh = new SphereMesh();
-			meshInstance.Scale = new Vector3(0.5f, 0.5f, 0.5f);
+			meshInstance.Scale = _originalScale;
 			AddChild(meshInstance);
+			_woolBallModel = meshInstance;
 		}
+	}
+	
+	// NOUVELLE MÉTHODE: Mettre à jour la taille de la pelote en fonction du temps restant
+	public void UpdateSizeBasedOnTime(float remainingTime)
+	{
+		if (_woolBallModel == null) return;
+		
+		// Calculer le ratio du temps restant (entre 0 et 1)
+		float timeRatio = Mathf.Clamp(remainingTime / _maxGameTime, 0.0f, 1.0f);
+		
+		// Ajuster la taille en fonction du temps (échelle de 0 à 1)
+		// Gardons un minimum de 0.2 pour que la balle reste visible même à 0 seconde
+		float scaleRatio = Mathf.Lerp(0.2f, 1.0f, timeRatio);
+		
+		// Appliquer l'échelle
+		Vector3 newScale = _originalScale * scaleRatio;
+		
+		// Créer une animation de transition
+		Tween tween = CreateTween();
+		tween.TweenProperty(_woolBallModel, "scale", newScale, 0.2f); // Transition douce
+		
+		// Mettre à jour la rayon de collision pour correspondre à la nouvelle taille
+		var collisionShape = GetNodeOrNull<CollisionShape3D>("CollisionShape3D");
+		if (collisionShape != null)
+		{
+			var sphereShape = collisionShape.Shape as SphereShape3D;
+			if (sphereShape != null)
+			{
+				float defaultRadius = 0.5f; // Rayon par défaut de la collision
+				sphereShape.Radius = defaultRadius * scaleRatio;
+			}
+		}
+		
+		GD.Print($"Taille de la pelote mise à jour: {scaleRatio:0.00} (temps restant: {remainingTime:0.0}s)");
 	}
 	
 	// Mise à jour pour le suivi de caméra
 	public override void _Process(double delta)
 	{
 		// Mettre à jour le pivot de la caméra pour qu'il suive la position de la balle 
-		// mais conserve une orientation fixe
+		// mais conserve une orientation fixe pour rester au-dessus
 		if (_cameraFollowPivot != null)
 		{
-			// Le pivot suit la position de la balle, mais garde une rotation indépendante
-			_cameraFollowPivot.GlobalPosition = GlobalPosition;
-			_cameraFollowPivot.GlobalRotation = Vector3.Zero; // Réinitialiser la rotation pour qu'elle reste fixe
+			// Le pivot suit uniquement la position XZ de la balle, gardant sa propre hauteur
+			Vector3 newPosition = new Vector3(
+				GlobalPosition.X,
+				_cameraFollowPivot.GlobalPosition.Y, // Garder la même hauteur
+				GlobalPosition.Z
+			);
+			_cameraFollowPivot.GlobalPosition = newPosition;
+			
+			// S'assurer que la rotation reste fixe (regardant vers le bas)
+			_cameraFollowPivot.GlobalRotation = Vector3.Zero;
 		}
 		
 		// Faire tourner la balle de laine quand elle se déplace
 		RotateWoolBall(delta);
 	}
+
 	
 	// Nouvelle méthode pour faire tourner la balle de laine en fonction du mouvement
 	private void RotateWoolBall(double delta)
@@ -355,7 +403,7 @@ public partial class PlayerBall : RigidBody3D
 		var modelNode = GetNodeOrNull<Node3D>("WoolBallModel");
 		if (modelNode != null)
 		{
-			modelNode.Scale = new Vector3(0.5f, 0.5f, 0.5f);
+			modelNode.Scale = _originalScale;
 		}
 		
 		// Réactiver le contrôle

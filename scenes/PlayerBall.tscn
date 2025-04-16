@@ -23,7 +23,8 @@ skeleton = NodePath("../..")
 [node name="Camera3D" type="Camera3D" parent="."]
 physics_interpolation_mode = 1
 auto_translate_mode = 2
-transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 5, 5)
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 5, 0.0058136)
 keep_aspect = 0
 doppler_tracking = 2
 current = true
+fov = 59.5495
