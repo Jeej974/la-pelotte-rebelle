@@ -1151,17 +1151,10 @@ public partial class MainScene : Node3D
 	// Jouer un son de game over
 	private void PlayGameOverSound()
 	{
-		var audioPlayer = new AudioStreamPlayer();
-		AddChild(audioPlayer);
-		
-		// Configurer le son
-		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_malus.wav");
-		audioPlayer.VolumeDb = 5.0f;
-		audioPlayer.Play();
-		
-		// Supprimer le lecteur une fois le son terminé
-		audioPlayer.Finished += () => audioPlayer.QueueFree();
+		FMODHelper.PlaySound("GameOver");
+		GD.Print("Son GameOver joué");
 	}
+
 	
 	private void CheckMazeTransition()
 	{

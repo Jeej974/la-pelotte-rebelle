@@ -114,7 +114,6 @@ public partial class Cat : Area3D
 		AddChild(_meowTimer);
 	}
 	
-	// NOUVEAU: Jouer un miaulement à intervalle aléatoire
 	private void PlayRandomMeow()
 	{
 		// Ne pas jouer de son si le chat a été collecté
@@ -123,11 +122,52 @@ public partial class Cat : Area3D
 		// Vérifier si le joueur est dans le même labyrinthe
 		bool isPlayerInSameMaze = IsPlayerInSameMaze();
 		
-		// Jouer le son seulement si le joueur est dans le même labyrinthe
-		if (isPlayerInSameMaze && _audioPlayer != null && _audioPlayer.Stream != null)
+		// Trouver le joueur
+		var player = GetTree().Root.FindChild("PlayerBall", true, false) as PlayerBall;
+		if (player == null) return;
+		
+		// Calculer la distance entre le chat et le joueur
+		float distance = GlobalPosition.DistanceTo(player.GlobalPosition);
+		
+		// Déterminer s'il y a un mur entre le chat et le joueur par raycast
+		bool wallBetween = CheckWallBetweenPlayerAndCat(player);
+		
+		if (isPlayerInSameMaze)
 		{
-			_audioPlayer.Play();
-			GD.Print($"Chat {_catType} miaule!");
+			// Jouer le son via FMOD avec spatialisation
+			var fmod = FMODHelper.GetFMODStudio();
+			if (fmod != null)
+			{
+				try {
+					// Jouer le son en 3D à la position du chat directement avec PlaySound
+					FMODHelper.PlaySound("CatMeow", this);
+					
+					// Ajuster le volume en fonction du mur (si FMOD supporte des paramètres)
+					if (wallBetween)
+					{
+						// Essayer de définir un paramètre d'occlusion si disponible
+						FMODHelper.SetGlobalParameter("Occlusion", 0.8f);
+					}
+					else
+					{
+						FMODHelper.SetGlobalParameter("Occlusion", 0.0f);
+					}
+					
+					GD.Print($"Chat {_catType} miaule via FMOD! Distance: {distance:F2}, Mur entre: {wallBetween}");
+				}
+				catch (Exception ex)
+				{
+					// Fallback à l'audio Godot si FMOD échoue
+					GD.PrintErr($"Erreur FMOD: {ex.Message}");
+					PlayFallbackCatSound(distance, wallBetween);
+				}
+
+			}
+			else
+			{
+				// Utiliser le système audio Godot standard
+				PlayFallbackCatSound(distance, wallBetween);
+			}
 		}
 		
 		// Définir un nouvel intervalle aléatoire
@@ -135,6 +175,65 @@ public partial class Cat : Area3D
 		{
 			_meowTimer.WaitTime = GD.RandRange(5.0, 15.0);
 		}
+	}
+
+	// Ajouter cette nouvelle méthode pour vérifier s'il y a un mur entre le chat et le joueur
+	private bool CheckWallBetweenPlayerAndCat(PlayerBall player)
+	{
+		// Créer un objet PhysicsRayQueryParameters3D pour configurer le raycast
+		var rayOrigin = GlobalPosition;
+		var rayEnd = player.GlobalPosition;
+		var rayParams = PhysicsRayQueryParameters3D.Create(rayOrigin, rayEnd);
+		
+		// Ne détecter que les murs (layer 1 - collision layer standard)
+		rayParams.CollisionMask = 1;
+		
+		// Effectuer le raycast
+		var space = GetWorld3D().DirectSpaceState;
+		var result = space.IntersectRay(rayParams);
+		
+		// Si le résultat contient une collision, il y a un mur entre les deux
+		return result.Count > 0;
+	}
+
+	// Ajouter cette méthode pour jouer le son via AudioStreamPlayer standard avec atténuation
+	private void PlayFallbackCatSound(float distance, bool wallBetween)
+	{
+		if (_audioPlayer == null) return;
+		
+		// Charger le son
+		_audioPlayer.Stream = ResourceLoader.Load<AudioStream>(_meowSoundPath);
+		
+		// Configurer l'atténuation du son
+		_audioPlayer.VolumeDb = CalculateVolumeDb(distance, wallBetween);
+		_audioPlayer.MaxDistance = 20.0f; // Distance maximale d'audition
+		_audioPlayer.UnitSize = 1.0f; // Facteur d'atténuation avec la distance
+		
+		// Atténuation supplémentaire s'il y a un mur
+		if (wallBetween)
+		{
+			_audioPlayer.UnitSize = 0.5f; // Réduire davantage la portée
+		}
+		
+		_audioPlayer.Play();
+		
+		GD.Print($"Chat {_catType} miaule via système Godot! Volume: {_audioPlayer.VolumeDb:F2}dB");
+	}
+
+	// Calcule le volume en fonction de la distance et des obstacles
+	private float CalculateVolumeDb(float distance, bool wallBetween)
+	{
+		// Volume de base
+		float baseVolume = 0.0f; // 0dB = volume normal
+		
+		// Atténuation basée sur la distance (logarithmique)
+		float distanceAttenuation = -6.0f * Mathf.Log(Mathf.Max(1.0f, distance / 5.0f));
+		
+		// Atténuation supplémentaire s'il y a un mur
+		float wallAttenuation = wallBetween ? -12.0f : 0.0f; // -12dB supplémentaires si un mur est présent
+		
+		// Calculer le volume final (limité entre -80dB et 0dB)
+		return Mathf.Clamp(baseVolume + distanceAttenuation + wallAttenuation, -80.0f, 0.0f);
 	}
 	
 	// NOUVEAU: Vérifier si le joueur est dans le même labyrinthe que ce chat
@@ -361,12 +460,22 @@ public partial class Cat : Area3D
 		}
 		
 		// Jouer le son approprié
-		if (soundEffect != null && _audioPlayer != null)
+		switch (_catType)
 		{
-			_audioPlayer.Stream = soundEffect;
-			_audioPlayer.Play();
+			case CatType.Black:
+				FMODHelper.PlaySound("Malus", this);
+				break;
+			case CatType.Tabby:
+				// Pour le chat tigré, utiliser le son en fonction de l'effet (positif ou négatif)
+				if (effectValue < 0)
+					FMODHelper.PlaySound("Malus", this);
+				else
+					FMODHelper.PlaySound("Bonus", this);
+				break;
+			default:
+				FMODHelper.PlaySound("Bonus", this);
+				break;
 		}
-		
 		// Afficher un texte flottant
 		CreateFloatingText(effectText, effectColor);
 	}

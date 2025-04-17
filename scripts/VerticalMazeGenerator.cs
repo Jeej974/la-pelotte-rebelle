@@ -1328,20 +1328,10 @@ public partial class VerticalMazeGenerator : Node3D
 	// Jouer un son lors de la téléportation
 	private void PlayTeleportSound(Node3D target)
 	{
-		var audioPlayer = new AudioStreamPlayer3D();
-		target.AddChild(audioPlayer);
-		
-		// Charger le son de téléportation
-		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_teleporteur.wav");
-		
-		// Configuration du son
-		audioPlayer.VolumeDb = 5.0f; // Volume
-		audioPlayer.MaxDistance = 100.0f;
-		audioPlayer.Autoplay = true;
-		
-		// Supprimer le lecteur une fois le son terminé
-		audioPlayer.Finished += () => audioPlayer.QueueFree();
+		FMODHelper.PlaySound("Teleport", target);
+		GD.Print("Son de téléportation joué");
 	}
+
 	
 	// Méthode pour terminer la téléportation du joueur avec CallDeferred
 	private void FinishPlayerTeleporting(PlayerBall playerBall)
