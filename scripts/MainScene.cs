@@ -504,7 +504,7 @@ public partial class MainScene : Node3D
 	{
 		_gameState = GameState.Calibrating;
 		GD.Print("État: Calibrating");
-		
+		PlayGameMenuBckg();
 		// Afficher le message de calibrage
 		AddCenteredMessage("Manette en cours de calibrage, veuillez patienter", Colors.White, 32);
 		
@@ -1222,6 +1222,19 @@ public partial class MainScene : Node3D
 		}
 	}
 	
+	private void PlayGameMenuBckg()
+	{
+		var audioPlayer = new AudioStreamPlayer();
+		AddChild(audioPlayer);
+		
+		// Configurer le son
+		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/musique_menu.wav");
+		audioPlayer.VolumeDb = 5.0f;
+		audioPlayer.Play();
+		
+		// Supprimer le lecteur une fois le son terminé
+		audioPlayer.Finished += () => audioPlayer.QueueFree();
+	}
 	// Modifier la méthode HandleButtonPress pour être plus robuste
 	private void HandleButtonPress()
 	{
@@ -1233,6 +1246,7 @@ public partial class MainScene : Node3D
 			case GameState.Calibrating:
 				// Ignorer pendant le calibrage
 				GD.Print("Bouton ignoré pendant le calibrage");
+				
 				break;
 				
 			case GameState.WaitingToStart:

@@ -144,7 +144,20 @@ public partial class Teleporter : Area3D
 		// Démarrer l'animation
 		_animationPlayer.Play("pulse");
 	}
-	
+				// Jouer un son de cat 
+	private void PlayGameTeleporterNoise()
+	{
+		var audioPlayer = new AudioStreamPlayer();
+		AddChild(audioPlayer);
+		
+		// Configurer le son
+		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_teleporteur.wav");
+		audioPlayer.VolumeDb = 5.0f;
+		audioPlayer.Play();
+		
+		// Supprimer le lecteur une fois le son terminé
+		audioPlayer.Finished += () => audioPlayer.QueueFree();
+	}
 	// Méthode appelée quand un corps entre dans le téléporteur
 	private void OnBodyEntered(Node3D body)
 	{
@@ -163,7 +176,7 @@ public partial class Teleporter : Area3D
 			
 			// Effet visuel pour la téléportation
 			PlayTeleportEffect();
-			
+			PlayGameTeleporterNoise();
 			GD.Print($"Joueur entré dans le téléporteur de sortie du labyrinthe {MazeIndex}");
 		}
 	}

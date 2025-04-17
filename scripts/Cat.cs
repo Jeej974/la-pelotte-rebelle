@@ -53,6 +53,52 @@ public partial class Cat : Area3D
 	private static readonly string _bonusSoundPath = "res://assets/audio/bruit_bonus.wav";
 	private static readonly string _malusSoundPath = "res://assets/audio/bruit_malus.wav";
 	
+		// Jouer un son de cat 
+	private void PlayGameCatNoise()
+	{
+		var audioPlayer = new AudioStreamPlayer();
+		AddChild(audioPlayer);
+		
+		// Configurer le son
+		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_chat.wav");
+		audioPlayer.VolumeDb = 2.0f;
+		audioPlayer.Play();
+		
+		// Supprimer le lecteur une fois le son terminé
+		audioPlayer.Finished += () => audioPlayer.QueueFree();
+	}
+	
+			// Jouer un son de cat 
+	private void PlayGameCatBonusNoise()
+	{
+		var audioPlayer = new AudioStreamPlayer();
+		AddChild(audioPlayer);
+		
+		// Configurer le son
+		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_bonus.wav");
+		audioPlayer.VolumeDb = 5.0f;
+		audioPlayer.Play();
+		
+		// Supprimer le lecteur une fois le son terminé
+		audioPlayer.Finished += () => audioPlayer.QueueFree();
+	}
+	
+	
+			// Jouer un son de cat 
+	private void PlayGameCatMalusNoise()
+	{
+		var audioPlayer = new AudioStreamPlayer();
+		AddChild(audioPlayer);
+		
+		// Configurer le son
+		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_malus.wav");
+		audioPlayer.VolumeDb = 5.0f;
+		audioPlayer.Play();
+		
+		// Supprimer le lecteur une fois le son terminé
+		audioPlayer.Finished += () => audioPlayer.QueueFree();
+	}
+	
 	public override void _Ready()
 	{
 		// Trouver les nœuds de la scène
@@ -126,7 +172,7 @@ public partial class Cat : Area3D
 		// Jouer le son seulement si le joueur est dans le même labyrinthe
 		if (isPlayerInSameMaze && _audioPlayer != null && _audioPlayer.Stream != null)
 		{
-			_audioPlayer.Play();
+			PlayGameCatNoise();
 			GD.Print($"Chat {_catType} miaule!");
 		}
 		
@@ -322,7 +368,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "+5 secondes";
 				effectColor = Colors.Green;
-				soundEffect = ResourceLoader.Load<AudioStream>(_bonusSoundPath);
+				PlayGameCatBonusNoise();
 				break;
 				
 			case CatType.Black: // Chat Noir: -10 secondes
@@ -330,7 +376,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "-10 secondes";
 				effectColor = Colors.Red;
-				soundEffect = ResourceLoader.Load<AudioStream>(_malusSoundPath);
+				PlayGameCatMalusNoise();
 				break;
 				
 			case CatType.Tabby: // Chat Tigré: Aléatoire +7/-7 secondes
@@ -340,7 +386,12 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = $"{effect} secondes";
 				effectColor = positive ? Colors.Green : Colors.Red;
-				soundEffect = ResourceLoader.Load<AudioStream>(positive ? _bonusSoundPath : _malusSoundPath);
+				if (positive == true) {
+					PlayGameCatBonusNoise();
+				} else {
+					PlayGameCatMalusNoise();
+				}
+			
 				break;
 				
 			case CatType.White: // Chat Blanc: +15 secondes
@@ -348,7 +399,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "+15 secondes";
 				effectColor = Colors.Green;
-				soundEffect = ResourceLoader.Load<AudioStream>(_bonusSoundPath);
+				PlayGameCatBonusNoise();
 				break;
 				
 			case CatType.Siamese: // Chat Siamois: Révèle le chemin
@@ -356,7 +407,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "+20s & Chemin révélé!";
 				effectColor = Colors.Cyan;
-				soundEffect = ResourceLoader.Load<AudioStream>(_bonusSoundPath);
+				PlayGameCatBonusNoise();
 				break;
 		}
 		
