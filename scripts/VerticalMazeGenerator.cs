@@ -115,7 +115,7 @@ public partial class VerticalMazeGenerator : Node3D
 		_wallTextures.Clear();
 		
 		// Charger les textures en utilisant le format correct (Asset_X.png)
-		for (int i = 1; i <= 18; i++)
+		for (int i = 1; i <= 49; i++)
 		{
 			string texturePath = $"res://assets/wall/Textures/Asset_{i}.png";
 			var texture = ResourceLoader.Load<Texture2D>(texturePath);
