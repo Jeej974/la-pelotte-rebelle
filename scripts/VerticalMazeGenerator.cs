@@ -213,7 +213,7 @@ public partial class VerticalMazeGenerator : Node3D
 		// Vérifier si ce labyrinthe a déjà été généré
 		if (_generatedMazes.Contains(mazeIndex) || mazeIndex >= MAX_MAZES)
 		{
-			GD.Print($"Labyrinthe {mazeIndex} déjà généré ou index invalide");
+			// GD.Print($"Labyrinthe {mazeIndex} déjà généré ou index invalide");
 			return;
 		}
 		
@@ -230,8 +230,8 @@ public partial class VerticalMazeGenerator : Node3D
 		// Positionner le labyrinthe
 		mazeNode.Position = new Vector3(_totalWidth, 0, 0);
 		
-		// Important: utiliser CallDeferred pour éviter les erreurs lors de l'ajout du nœud
-		CallDeferred(Node.MethodName.AddChild, mazeNode);
+		// Ajouter directement le nœud sans CallDeferred pour s'assurer qu'il est immédiatement disponible
+		AddChild(mazeNode);
 		
 		// Mettre à jour la largeur totale
 		int size = _mazeSizes[mazeIndex];
@@ -253,6 +253,14 @@ public partial class VerticalMazeGenerator : Node3D
 		{
 			GD.Print($"Joueur dans le labyrinthe {mazeIndex}, génération du labyrinthe {nextMazeIndex}");
 			GenerateNextMaze(nextMazeIndex);
+		}
+		
+		// Générer également le labyrinthe après pour avoir plus d'avance (labyrinthe N+3)
+		int nextNextMazeIndex = mazeIndex + 3;
+		if (nextNextMazeIndex < MAX_MAZES && !_generatedMazes.Contains(nextNextMazeIndex))
+		{
+			GD.Print($"Génération du labyrinthe {nextNextMazeIndex} en prévision");
+			GenerateNextMaze(nextNextMazeIndex);
 		}
 	}
 	
@@ -411,7 +419,7 @@ public partial class VerticalMazeGenerator : Node3D
 		// Ajoute une étiquette pour le labyrinthe
 		AddMazeLabel(mazeNode, mazeIndex, size);
 		
-		// Cette fonction est maintenant vide, mais gardée pour compatibilité
+		// Créer les téléporteurs
 		CreateTeleportZones(mazeNode, mazeIndex, size, entrancePos, exitPos);
 		
 		return mazeNode;
@@ -524,7 +532,19 @@ public partial class VerticalMazeGenerator : Node3D
 	private void CreateMarker(Node3D mazeNode, int x, int y, Color color, bool isExit = false)
 	{
 		// Utiliser le modèle de téléporteur pour l'entrée et la sortie
-		CreateTeleporterGate(mazeNode, x, y, isExit ? new Color(0, 1, 0) : new Color(1, 0, 0), isExit);
+		// Récupérer l'index du labyrinthe depuis le nom du nœud
+		int mazeIndex = 0;
+		string mazeName = mazeNode.Name;
+		string[] parts = mazeName.Split('_');
+		if (parts.Length > 1)
+		{
+			if (int.TryParse(parts[1], out int index))
+			{
+				mazeIndex = index;
+			}
+		}
+		
+		CreateTeleporterGate(mazeNode, x, y, isExit ? new Color(0, 1, 0) : new Color(1, 0, 0), isExit, mazeIndex);
 	}
 
 	// MÉTHODE AMÉLIORÉE: Ajouter un indicateur lumineux pour le téléporteur
@@ -1159,12 +1179,16 @@ public partial class VerticalMazeGenerator : Node3D
 		AddChild(ambientLight);
 	}
 
-	// Ajouter un visuel pour les zones de téléportation - Maintenant inutilisé
-	private void AddTeleportZoneVisual(Area3D zone, Color color)
+	// Créer et configurer les téléporteurs d'entrée et de sortie
+	private void CreateTeleportZones(Node3D mazeNode, int mazeIndex, int size, Vector2I entrancePos, Vector2I exitPos)
 	{
-		// Cette méthode est conservée pour compatibilité mais n'est plus utilisée
-		// Les téléporteurs eux-mêmes servent maintenant de zone de détection
+		// Créer le téléporteur d'entrée (première moitié du tunnel)
+		CreateTeleporterGate(mazeNode, entrancePos.X, entrancePos.Y, new Color(0, 0.5f, 1.0f), false, mazeIndex);
+		
+		// Créer le téléporteur de sortie (deuxième moitié du tunnel)
+		CreateTeleporterGate(mazeNode, exitPos.X, exitPos.Y, new Color(1.0f, 0.3f, 0.0f), true, mazeIndex);
 	}
+
 	// Modification de la méthode CreateTeleporterGate pour utiliser la scène Teleporter
 	private void CreateTeleporterGate(Node3D mazeNode, int x, int y, Color color, bool isExit, int mazeIndex = 0)
 	{
@@ -1221,7 +1245,8 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		GD.Print($"Téléporteur {(isExit ? "de sortie" : "d entrée")} créé à la position {teleporter.Position} pour le labyrinthe {mazeIndex}");
 	}
-	// Mise à jour de la méthode OnPlayerEnteredExitTeleporter pour utiliser le signal du téléporteur
+
+	// Amélioration de la méthode de téléportation
 	private void OnPlayerEnteredExitTeleporter(Node3D body, int currentMazeIndex)
 	{
 		// Vérifier si c'est le joueur qui entre en contact
@@ -1237,7 +1262,10 @@ public partial class VerticalMazeGenerator : Node3D
 				
 				// Générer le prochain labyrinthe s'il n'existe pas déjà
 				GenerateNextMaze(nextMazeIndex);
-				GenerateNextMaze(nextMazeIndex + 1); // Générer le labyrinthe d'après également
+				
+				// Important: Générer aussi les labyrinthes d'après pour avoir de l'avance
+				GenerateNextMaze(nextMazeIndex + 1); // Labyrinthe N+2
+				GenerateNextMaze(nextMazeIndex + 2); // Labyrinthe N+3
 				
 				// Récupérer la position d'entrée du prochain labyrinthe
 				Node3D nextMaze = GetNodeOrNull<Node3D>($"Maze_{nextMazeIndex}");
@@ -1254,8 +1282,8 @@ public partial class VerticalMazeGenerator : Node3D
 						// Téléporter le joueur
 						playerBall.GlobalPosition = teleportPosition;
 						
-						// Terminer la téléportation
-						playerBall.FinishTeleporting();
+						// Utiliser CallDeferred pour terminer la téléportation après la mise à jour de la physique
+						CallDeferred(nameof(FinishPlayerTeleporting), playerBall);
 						
 						// Jouer un son de téléportation
 						PlayTeleportSound(playerBall);
@@ -1279,75 +1307,6 @@ public partial class VerticalMazeGenerator : Node3D
 				}
 			}
 		}
-	}
-	
-	// Mise à jour de la méthode de téléportation pour un meilleur alignement
-	private void OnBodyEnteredExitTeleporter(Node3D body, int currentMazeIndex)
-	{
-		// Vérifier si c'est le joueur qui entre en contact
-		if (body is PlayerBall playerBall)
-		{
-			// S'assurer que nous ne sommes pas au dernier labyrinthe
-			if (currentMazeIndex < MAX_MAZES - 1)
-			{
-				int nextMazeIndex = currentMazeIndex + 1;
-				
-				// Indiquer au joueur que la téléportation commence
-				playerBall.StartTeleporting();
-				
-				// Générer le prochain labyrinthe s'il n'existe pas déjà
-				GenerateNextMaze(nextMazeIndex);
-				GenerateNextMaze(nextMazeIndex + 1); // Générer le labyrinthe d'après également
-				
-				// Récupérer la position d'entrée du prochain labyrinthe
-				Node3D nextMaze = GetNodeOrNull<Node3D>($"Maze_{nextMazeIndex}");
-				if (nextMaze != null)
-				{
-					// Trouver le téléporteur d'entrée du prochain labyrinthe
-					Node3D entranceTeleporter = nextMaze.FindChild("EntranceTeleporter", true, false) as Node3D;
-					
-					if (entranceTeleporter != null)
-					{
-						// Téléporter le joueur directement au-dessus du téléporteur d'entrée
-						// Uniquement décalage vertical pour éviter les collisions
-						Vector3 teleportPosition = entranceTeleporter.GlobalPosition + new Vector3(0, 0.7f, 0);
-						
-						// Téléporter le joueur
-						playerBall.GlobalPosition = teleportPosition;
-						
-						// Terminer la téléportation
-						playerBall.FinishTeleporting();
-						
-						// Jouer un son de téléportation
-						PlayTeleportSound(playerBall);
-						
-						// Émettre le signal pour indiquer que le joueur a changé de labyrinthe
-						EmitSignal(SignalName.PlayerEnteredMaze, nextMazeIndex);
-						
-						// Ajouter du temps
-						AddTimeToMainScene(nextMazeIndex);
-						
-						GD.Print($"Joueur téléporté vers le labyrinthe {nextMazeIndex} à la position {teleportPosition}");
-					}
-					else
-					{
-						GD.PrintErr($"Téléporteur d'entrée non trouvé dans le labyrinthe {nextMazeIndex}");
-					}
-				}
-				else
-				{
-					GD.PrintErr($"Erreur: Labyrinthe {nextMazeIndex} introuvable!");
-				}
-			}
-		}
-	}
-
-
-	// Cette fonction est maintenant vide car nous utilisons directement les téléporteurs
-	// pour la détection des collisions. Conservée pour éviter de casser les appels existants
-	private void CreateTeleportZones(Node3D mazeNode, int mazeIndex, int size, Vector2I entrancePos, Vector2I exitPos)
-	{
-		// Ne rien faire - les téléporteurs gèrent directement la détection
 	}
 
 	// Méthode pour ajouter du temps au MainScene
@@ -1382,5 +1341,17 @@ public partial class VerticalMazeGenerator : Node3D
 		
 		// Supprimer le lecteur une fois le son terminé
 		audioPlayer.Finished += () => audioPlayer.QueueFree();
+	}
+	
+	// Méthode pour terminer la téléportation du joueur avec CallDeferred
+	private void FinishPlayerTeleporting(PlayerBall playerBall)
+	{
+		if (playerBall != null)
+		{
+			playerBall.FinishTeleporting();
+			// S'assurer que les contrôles sont bien activés
+			playerBall.EnableControls();
+			GD.Print("Téléportation du joueur terminée, contrôles réactivés");
+		}
 	}
 }

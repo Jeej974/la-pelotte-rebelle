@@ -16,6 +16,11 @@ public partial class Teleporter : Area3D
 	[Signal]
 	public delegate void PlayerEnteredExitTeleporterEventHandler(Node3D body, int mazeIndex);
 	
+	// Nouvel état pour éviter les téléportations multiples
+	private bool _teleportActive = false;
+	private float _cooldownTimer = 0f;
+	private const float COOLDOWN_TIME = 1.5f; // Temps de cooldown en secondes
+	
 	private OmniLight3D _light;
 	private AnimationPlayer _animationPlayer;
 	
@@ -39,6 +44,19 @@ public partial class Teleporter : Area3D
 		
 		// Créer et démarrer l'animation de pulsation
 		CreatePulseAnimation();
+	}
+	
+	public override void _Process(double delta)
+	{
+		// Gérer le cooldown pour éviter les téléportations multiples
+		if (_teleportActive)
+		{
+			_cooldownTimer -= (float)delta;
+			if (_cooldownTimer <= 0)
+			{
+				_teleportActive = false;
+			}
+		}
 	}
 	
 	// Méthode pour appliquer la couleur au téléporteur
@@ -130,11 +148,77 @@ public partial class Teleporter : Area3D
 	// Méthode appelée quand un corps entre dans le téléporteur
 	private void OnBodyEntered(Node3D body)
 	{
-		if (IsExit && body is PlayerBall)
+		// Si ce n'est pas un téléporteur de sortie ou si le cooldown est actif, ignorer
+		if (!IsExit || _teleportActive) return;
+		
+		// Si c'est le joueur, émettre le signal
+		if (body is PlayerBall)
 		{
-			// Émettre le signal si c'est un téléporteur de sortie
+			// Activer le cooldown pour éviter les téléportations multiples
+			_teleportActive = true;
+			_cooldownTimer = COOLDOWN_TIME;
+			
+			// Émettre le signal pour la téléportation
 			EmitSignal(SignalName.PlayerEnteredExitTeleporter, body, MazeIndex);
+			
+			// Effet visuel pour la téléportation
+			PlayTeleportEffect();
+			
 			GD.Print($"Joueur entré dans le téléporteur de sortie du labyrinthe {MazeIndex}");
+		}
+	}
+	
+	// Ajouter un effet visuel lors de la téléportation
+	private void PlayTeleportEffect()
+	{
+		// Augmenter l'intensité de la lumière momentanément
+		if (_light != null)
+		{
+			// Arrêter l'animation existante
+			if (_animationPlayer != null && _animationPlayer.IsPlaying())
+			{
+				_animationPlayer.Stop();
+			}
+			
+			// Créer un effet de flash
+			var tween = CreateTween();
+			tween.SetEase(Tween.EaseType.Out);
+			tween.SetTrans(Tween.TransitionType.Cubic);
+			
+			// Augmenter l'intensité rapidement
+			tween.TweenProperty(_light, "light_energy", 8.0f, 0.2f);
+			// Puis revenir à la normale
+			tween.TweenProperty(_light, "light_energy", 2.0f, 1.0f);
+			
+			// Redémarrer l'animation de pulsation après l'effet
+			tween.TweenCallback(Callable.From(() => {
+				if (_animationPlayer != null)
+				{
+					_animationPlayer.Play("pulse");
+				}
+			}));
+		}
+		
+		// Intensifier les particules pendant un court instant
+		var particles = GetNodeOrNull<GpuParticles3D>("GPUParticles3D");
+		if (particles != null)
+		{
+			// Sauvegarder le montant original
+			int originalAmount = particles.Amount;
+			
+			// Augmenter temporairement le nombre de particules
+			particles.Amount = originalAmount * 3;
+			
+			// Créer un timer pour restaurer le nombre original
+			var timer = new Timer();
+			timer.WaitTime = 1.0f;
+			timer.OneShot = true;
+			timer.Timeout += () => {
+				particles.Amount = originalAmount;
+				timer.QueueFree();
+			};
+			AddChild(timer);
+			timer.Start();
 		}
 	}
 }

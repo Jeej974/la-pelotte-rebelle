@@ -15,6 +15,10 @@ run/main_scene="uid://dko1pekeodxtc"
 config/features=PackedStringArray("4.4", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+ScoreManager="*res://scripts/ScoreManager.cs"
+
 [dotnet]
 
 project/assembly_name="La pelote rebelle"

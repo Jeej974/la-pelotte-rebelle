@@ -1,6 +1,8 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
+using System.IO;
 
 public partial class GameManager : Node
 {
@@ -34,6 +36,28 @@ public partial class GameManager : Node
 	// Nœuds pour l'affichage du chemin
 	private List<Node3D> _pathMarkers = new List<Node3D>();
 	
+	// Référence à la MainScene
+	private MainScene _mainScene;
+	
+	// Struct pour les entrées de score
+	[Serializable]
+	private struct ScoreEntry
+	{
+		public int mazesCompleted;
+		public int totalCats;
+		public string date;
+		
+		public ScoreEntry(int mazes, int cats)
+		{
+			mazesCompleted = mazes;
+			totalCats = cats;
+			date = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+		}
+	}
+	
+	// Liste pour stocker les scores
+	private List<ScoreEntry> _highScores = new List<ScoreEntry>();
+	
 	public override void _Ready()
 	{
 		// Initialiser le temps de jeu
@@ -44,6 +68,16 @@ public partial class GameManager : Node
 		
 		// Rechercher le générateur de labyrinthe
 		CallDeferred(nameof(FindMazeGenerator));
+		
+		// Rechercher la MainScene
+		_mainScene = GetTree().Root.GetNode<MainScene>("MainScene");
+		if (_mainScene == null)
+		{
+			GD.PrintErr("MainScene non trouvée!");
+		}
+		
+		// Charger les scores existants
+		LoadHighScores();
 	}
 	
 	private void FindMazeGenerator()
@@ -72,6 +106,12 @@ public partial class GameManager : Node
 			_gameOver = true;
 			EmitSignal(SignalName.GameOver);
 			GD.Print("Temps écoulé! Game Over!");
+			
+			// Notifier la MainScene
+			if (_mainScene != null)
+			{
+				_mainScene.Call("GameOver");
+			}
 		}
 	}
 	
@@ -206,7 +246,6 @@ public partial class GameManager : Node
 	private int GetCurrentMazeIndex()
 	{
 		// Cette fonction devrait être synchronisée avec la méthode équivalente dans MainScene
-		// Pour simplifier, nous utilisons une approche similaire
 		
 		// Trouver le joueur
 		var player = GetTree().Root.FindChild("PlayerBall", true, false) as PlayerBall;
@@ -318,5 +357,125 @@ public partial class GameManager : Node
 		}
 		
 		_pathMarkers.Clear();
+	}
+	
+	// Réinitialiser le gestionnaire pour un nouveau jeu
+	public void Reset()
+	{
+		_remainingTime = _initialGameTime;
+		_gameOver = false;
+		ClearPathMarkers();
+		UpdateTimeLabel();
+	}
+	
+	// Charger les scores à partir du fichier JSON
+	private void LoadHighScores()
+	{
+		try
+		{
+			string filePath = "user://saves/highscores.json";
+			
+			// Vérifier si le fichier existe
+			if (Godot.FileAccess.FileExists(filePath))
+			{
+				using var file = Godot.FileAccess.Open(filePath, Godot.FileAccess.ModeFlags.Read);
+				if (file != null)
+				{
+					string jsonContent = file.GetAsText();
+					
+					// Désérialiser le JSON en liste de ScoreEntry
+					var loadedScores = JsonSerializer.Deserialize<List<ScoreEntry>>(jsonContent);
+					if (loadedScores != null)
+					{
+						_highScores = loadedScores;
+						
+						// Trier les scores chargés
+						_highScores.Sort((a, b) => {
+							int mazeCompare = b.mazesCompleted.CompareTo(a.mazesCompleted);
+							if (mazeCompare != 0) return mazeCompare;
+							return b.totalCats.CompareTo(a.totalCats);
+						});
+						
+						// Limiter à 10 scores maximum
+						if (_highScores.Count > 10)
+						{
+							_highScores.RemoveRange(10, _highScores.Count - 10);
+						}
+						
+						GD.Print($"GameManager: Chargement réussi de {_highScores.Count} scores depuis {filePath}");
+					}
+				}
+			}
+			else
+			{
+				GD.Print("GameManager: Aucun fichier de scores trouvé");
+				_highScores = new List<ScoreEntry>();
+			}
+		}
+		catch (Exception e)
+		{
+			GD.PrintErr($"GameManager: Erreur lors du chargement des scores: {e.Message}");
+			_highScores = new List<ScoreEntry>();
+		}
+	}
+	
+	// Ajouter un nouveau score
+	public void AddScore(int mazes, int cats)
+	{
+		var newScore = new ScoreEntry(mazes, cats);
+		
+		// Ajouter le score à la liste
+		_highScores.Add(newScore);
+		
+		// Trier les scores
+		_highScores.Sort((a, b) => {
+			int mazeCompare = b.mazesCompleted.CompareTo(a.mazesCompleted);
+			if (mazeCompare != 0) return mazeCompare;
+			return b.totalCats.CompareTo(a.totalCats);
+		});
+		
+		// Limiter à 10 scores
+		if (_highScores.Count > 10)
+		{
+			_highScores.RemoveRange(10, _highScores.Count - 10);
+		}
+		
+		// Sauvegarder les scores
+		SaveHighScores();
+	}
+	
+	// Sauvegarder les scores dans un fichier JSON
+	private void SaveHighScores()
+	{
+		try 
+		{
+			// Créer le répertoire de sauvegarde si nécessaire
+			string saveDir = "user://saves";
+			if (!Godot.DirAccess.DirExistsAbsolute(saveDir))
+			{
+				Godot.DirAccess.MakeDirAbsolute(saveDir);
+			}
+			
+			string filePath = "user://saves/highscores.json";
+			
+			// Sérialiser la liste des scores en JSON
+			var jsonOptions = new JsonSerializerOptions 
+			{
+				WriteIndented = true
+			};
+			string jsonString = JsonSerializer.Serialize(_highScores, jsonOptions);
+			
+			// Écrire dans le fichier
+			using var file = Godot.FileAccess.Open(filePath, Godot.FileAccess.ModeFlags.Write);
+			if (file != null)
+			{
+				file.StoreString(jsonString);
+				GD.Print($"GameManager: Scores sauvegardés avec succès dans {filePath}");
+			}
+		}
+		catch (Exception e)
+		{
+			GD.PrintErr($"GameManager: Erreur lors de la sauvegarde des scores: {e.Message}");
+		}
 	}
 }
