@@ -10,7 +10,7 @@ using System.Threading;
 public partial class ArduinoManager : Node
 {
 	// Configuration du port COM
-	private const string PORT_NAME = "COM3";  // Port à utiliser (à ajuster si nécessaire)
+	private const string PORT_NAME = "COM5";  // Port à utiliser (à ajuster si nécessaire)
 	private const int BAUD_RATE = 9600;       // Vitesse de communication
 	
 	// SINGLETON PATTERN - Instance unique
@@ -456,37 +456,14 @@ public partial class ArduinoManager : Node
 	public bool IsButtonJustPressed()
 	{
 		// Si le bouton vient d'être pressé, le traiter une seule fois
-		if (_buttonJustPressed)
+		if (_buttonJustPressed && !_buttonEventProcessed)
 		{
-			_buttonJustPressed = false; // Réinitialiser immédiatement
-			_buttonEventProcessed = true; // Marquer comme traité
-			
-			// Réinitialisation complète des états du bouton avec un timer
-			var timer = new Godot.Timer();
-			timer.WaitTime = 0.05f;
-			timer.OneShot = true;
-			AddChild(timer);
-			timer.Timeout += () => {
-				_buttonJustPressed = false;
-				_buttonEventProcessed = true;
-				timer.QueueFree();
-			};
-			timer.Start();
+			_buttonJustPressed = false;
+			_buttonEventProcessed = true;
 			
 			ShowJumpMessage("BOUTON PRESSÉ!");
 			return true;
 		}
-		
-		// Important: Ne PAS détecter l'état appuyé continu
-		// Supprimer ou commenter ce bloc pour éviter les détections constantes
-		/*
-		if (_buttonPressed && !_buttonEventProcessed)
-		{
-			_buttonEventProcessed = true;
-			ShowJumpMessage("BOUTON DÉTECTÉ!");
-			return true;
-		}
-		*/
 		
 		return false;
 	}
@@ -500,6 +477,7 @@ public partial class ArduinoManager : Node
 		
 		GD.Print("État du bouton Arduino réinitialisé de force");
 	}
+
 
 
 	

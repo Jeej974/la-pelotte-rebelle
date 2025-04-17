@@ -18,7 +18,7 @@ General/is_memory_tracking_enabled=false
 "Software Format/speaker_mode"=3
 "Software Format/raw_speaker_count"=0
 General/default_listener_count=1
-General/banks_path="res://FmodBank/Desktop"
+General/banks_path="res://addons/fmod/Banks/Desktop"
 General/should_load_by_name=false
 DSP/dsp_buffer_size=512
 DSP/dsp_buffer_count=4
@@ -36,7 +36,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 ScoreManager="*res://scripts/ScoreManager.cs"
-FmodManager="*res://addons/fmod/FmodManager.gd"
+AudioManager="*res://scripts/AudioManager.cs"
 
 [dotnet]
 

@@ -50,8 +50,7 @@ public partial class Cat : Area3D
 	
 	// NOUVEAU: Chemins vers les fichiers audio
 	private static readonly string _meowSoundPath = "res://assets/audio/bruit_chat.wav";
-	private static readonly string _bonusSoundPath = "res://assets/audio/bruit_bonus.wav";
-	private static readonly string _malusSoundPath = "res://assets/audio/bruit_malus.wav";
+
 	
 	public override void _Ready()
 	{
@@ -119,8 +118,17 @@ public partial class Cat : Area3D
 		// Ne pas jouer de son si le chat a été collecté
 		if (_collected) return;
 		
-		// Vérifier si le joueur est dans le même labyrinthe
+		// OPTIMISATION CLÉ: Vérifier si le joueur est dans le même labyrinthe
 		bool isPlayerInSameMaze = IsPlayerInSameMaze();
+		
+		// SILENCE SI HORS ZONE: Si le chat n'est pas dans le même labyrinthe, ne pas jouer de son
+		if (!isPlayerInSameMaze) {
+			// Mettre à jour le timer pour le prochain essai
+			if (_meowTimer != null) {
+				_meowTimer.WaitTime = GD.RandRange(5.0, 15.0);
+			}
+			return;
+		}
 		
 		// Trouver le joueur
 		var player = GetTree().Root.FindChild("PlayerBall", true, false) as PlayerBall;
@@ -129,53 +137,133 @@ public partial class Cat : Area3D
 		// Calculer la distance entre le chat et le joueur
 		float distance = GlobalPosition.DistanceTo(player.GlobalPosition);
 		
+		// Si le joueur est très loin, ne pas jouer le son
+		float maxHearingDistance = 25.0f;
+		if (distance > maxHearingDistance) {
+			if (_meowTimer != null) {
+				_meowTimer.WaitTime = GD.RandRange(5.0, 15.0);
+			}
+			return;
+		}
+		
 		// Déterminer s'il y a un mur entre le chat et le joueur par raycast
 		bool wallBetween = CheckWallBetweenPlayerAndCat(player);
 		
-		if (isPlayerInSameMaze)
-		{
-			// Jouer le son via FMOD avec spatialisation
-			var fmod = FMODHelper.GetFMODStudio();
-			if (fmod != null)
-			{
-				try {
-					// Jouer le son en 3D à la position du chat directement avec PlaySound
-					FMODHelper.PlaySound("CatMeow", this);
-					
-					// Ajuster le volume en fonction du mur (si FMOD supporte des paramètres)
-					if (wallBetween)
-					{
-						// Essayer de définir un paramètre d'occlusion si disponible
-						FMODHelper.SetGlobalParameter("Occlusion", 0.8f);
-					}
-					else
-					{
-						FMODHelper.SetGlobalParameter("Occlusion", 0.0f);
-					}
-					
-					GD.Print($"Chat {_catType} miaule via FMOD! Distance: {distance:F2}, Mur entre: {wallBetween}");
-				}
-				catch (Exception ex)
-				{
-					// Fallback à l'audio Godot si FMOD échoue
-					GD.PrintErr($"Erreur FMOD: {ex.Message}");
-					PlayFallbackCatSound(distance, wallBetween);
-				}
-
+		// Réduction du volume en fonction de la distance et des obstacles
+		float volumeMultiplier = CalculateVolumeMultiplier(distance, wallBetween);
+		
+		if (AudioManager.Instance != null) {
+			// Définir l'occlusion en fonction de la présence d'un mur
+			AudioManager.Instance.SetGlobalParameter("Occlusion", wallBetween ? 0.8f : 0.0f);
+			
+			if (distance < 3.0f) {
+				// Son très proche: jouer à volume max
+				AudioManager.Instance.PlaySound3D("Cat" + _catType.ToString(), this);
 			}
-			else
-			{
-				// Utiliser le système audio Godot standard
-				PlayFallbackCatSound(distance, wallBetween);
+			else {
+				// Adapter le volume en fonction de la distance
+				// Note: Si nous sommes en mode fallback, cette adaptation se fera automatiquement
+				// dans la méthode PlaySound3DCustomVolume ci-dessous
+				PlaySound3DCustomVolume("Cat" + _catType.ToString(), volumeMultiplier);
 			}
+			
+			GD.Print($"Chat {_catType} miaule! Distance: {distance:F2}, Mur entre: {wallBetween}");
 		}
 		
-		// Définir un nouvel intervalle aléatoire
-		if (_meowTimer != null)
-		{
+		// Définir un nouvel intervalle aléatoire pour le prochain miaulement
+		if (_meowTimer != null) {
 			_meowTimer.WaitTime = GD.RandRange(5.0, 15.0);
 		}
 	}
+
+	// Nouvelle méthode pour jouer un son 3D avec volume personnalisé
+	private void PlaySound3DCustomVolume(string soundName, float volumeMultiplier)
+	{
+		if (AudioManager.Instance == null) return;
+		
+		// Si nous utilisons FMOD, il prend déjà en charge l'atténuation de distance
+		// mais nous pouvons essayer de personnaliser davantage via AudioManager
+		AudioManager.Instance.PlaySound3D(soundName, this);
+		
+		// Personnaliser le volume pour le son (pour le mode fallback)
+		// Chercher le lecteur audio associé au chat et ajuster son volume
+		foreach (Node child in GetChildren()) {
+			if (child is AudioStreamPlayer3D audioPlayer) {
+				// Calculer le facteur de volume en dB (logarithmique)
+				float volumeDb = Mathf.LinearToDb(volumeMultiplier);
+				
+				// Limiter à une plage raisonnable
+				volumeDb = Mathf.Clamp(volumeDb, -40.0f, 0.0f);
+				
+				// Appliquer le volume
+				audioPlayer.VolumeDb = volumeDb;
+				break;
+			}
+		}
+	}
+
+	// Nouvelle méthode pour calculer le facteur de volume basé sur la distance et les obstacles
+	private float CalculateVolumeMultiplier(float distance, bool wallBetween)
+	{
+		// Distance de référence (volume plein)
+		float referenceDistance = 3.0f;
+		
+		// Distance maximale d'audition
+		float maxDistance = 25.0f;
+		
+		// Si au-delà de la distance maximale, son inaudible
+		if (distance > maxDistance) {
+			return 0.0f;
+		}
+		
+		// Facteur d'atténuation basé sur la distance (plus réaliste que linéaire)
+		// Cette formule donne une atténuation plus douce au début, puis plus rapide à distance
+		float distanceFactor = 1.0f - (distance - referenceDistance) / (maxDistance - referenceDistance);
+		distanceFactor = Mathf.Clamp(distanceFactor, 0.0f, 1.0f);
+		
+		// Courbe d'atténuation quadratique (plus réaliste que linéaire)
+		distanceFactor = distanceFactor * distanceFactor;
+		
+		// Facteur d'atténuation supplémentaire si un mur est présent
+		float wallFactor = wallBetween ? 0.3f : 1.0f; // 70% de réduction avec un mur
+		
+		// Combiner les facteurs
+		return distanceFactor * wallFactor;
+	}
+
+
+
+	
+	private void PlayNativeCatSound(float distance, bool wallBetween)
+	{
+		if (_audioPlayer == null) {
+			// Créer le lecteur audio s'il n'existe pas
+			_audioPlayer = new AudioStreamPlayer3D();
+			_audioPlayer.Name = "CatAudioPlayer";
+			_audioPlayer.MaxDistance = 10.0f;
+			_audioPlayer.UnitSize = 1.5f;
+			AddChild(_audioPlayer);
+		}
+		
+		// Charger le son approprié en fonction du type de chat
+		string soundPath = "res://assets/audio/bruit_chat.wav";
+		var sound = ResourceLoader.Load<AudioStream>(soundPath);
+		
+		if (sound != null)
+		{
+			_audioPlayer.Stream = sound;
+			
+			// Ajuster le volume en fonction de la distance et des obstacles
+			_audioPlayer.VolumeDb = CalculateVolumeDb(distance, wallBetween);
+			
+			// Jouer le son
+			_audioPlayer.Play();
+			
+			GD.Print($"Chat {_catType} miaule via Godot AudioPlayer (fallback)");
+		}
+	}
+
+
 
 	// Ajouter cette nouvelle méthode pour vérifier s'il y a un mur entre le chat et le joueur
 	private bool CheckWallBetweenPlayerAndCat(PlayerBall player)
@@ -397,6 +485,7 @@ public partial class Cat : Area3D
 		}
 	}
 	
+
 	private void ApplyEffectToMainScene()
 	{
 		// Chercher le MainScene
@@ -411,8 +500,8 @@ public partial class Cat : Area3D
 		string effectText = "";
 		Color effectColor = Colors.White;
 		
-		// NOUVEAU: Sélectionner le son approprié (bonus ou malus)
-		AudioStream soundEffect = null;
+		// Déterminer l'événement sonore en fonction du type de chat
+		string soundEvent = "";
 		
 		switch (_catType)
 		{
@@ -421,7 +510,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "+5 secondes";
 				effectColor = Colors.Green;
-				soundEffect = ResourceLoader.Load<AudioStream>(_bonusSoundPath);
+				soundEvent = "Bonus";
 				break;
 				
 			case CatType.Black: // Chat Noir: -10 secondes
@@ -429,7 +518,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "-10 secondes";
 				effectColor = Colors.Red;
-				soundEffect = ResourceLoader.Load<AudioStream>(_malusSoundPath);
+				soundEvent = "Malus";
 				break;
 				
 			case CatType.Tabby: // Chat Tigré: Aléatoire +7/-7 secondes
@@ -439,7 +528,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = $"{effect} secondes";
 				effectColor = positive ? Colors.Green : Colors.Red;
-				soundEffect = ResourceLoader.Load<AudioStream>(positive ? _bonusSoundPath : _malusSoundPath);
+				soundEvent = positive ? "Bonus" : "Malus";
 				break;
 				
 			case CatType.White: // Chat Blanc: +15 secondes
@@ -447,7 +536,7 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "+15 secondes";
 				effectColor = Colors.Green;
-				soundEffect = ResourceLoader.Load<AudioStream>(_bonusSoundPath);
+				soundEvent = "Bonus";
 				break;
 				
 			case CatType.Siamese: // Chat Siamois: Révèle le chemin
@@ -455,31 +544,21 @@ public partial class Cat : Area3D
 				mainScene.Call("AddCatCollected", (int)_catType);
 				effectText = "+20s & Chemin révélé!";
 				effectColor = Colors.Cyan;
-				soundEffect = ResourceLoader.Load<AudioStream>(_bonusSoundPath);
+				soundEvent = "Bonus";
 				break;
 		}
 		
-		// Jouer le son approprié
-		switch (_catType)
-		{
-			case CatType.Black:
-				FMODHelper.PlaySound("Malus", this);
-				break;
-			case CatType.Tabby:
-				// Pour le chat tigré, utiliser le son en fonction de l'effet (positif ou négatif)
-				if (effectValue < 0)
-					FMODHelper.PlaySound("Malus", this);
-				else
-					FMODHelper.PlaySound("Bonus", this);
-				break;
-			default:
-				FMODHelper.PlaySound("Bonus", this);
-				break;
+		// Jouer le son approprié via le système disponible
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.PlaySound(soundEvent);
 		}
+
+		
 		// Afficher un texte flottant
 		CreateFloatingText(effectText, effectColor);
 	}
-	
+
+
 	private float GetEffectValue()
 	{
 		if (_catType == CatType.Tabby)
@@ -635,6 +714,26 @@ public partial class Cat : Area3D
 		return CatType.Orange;
 	}
 	
+	private string GetCatSoundEvent()
+	{
+		switch (_catType)
+		{
+			case CatType.Orange:
+				return "CatOrange"; // Nouveau format
+			case CatType.Black:
+				return "CatBlack";
+			case CatType.Tabby:
+				return "CatTabby";
+			case CatType.White:
+				return "CatWhite";
+			case CatType.Siamese:
+				return "CatSiamese";
+			default:
+				return "CatOrange"; // Fallback
+		}
+	}
+
+
 	// Déterminer le nombre de chats pour un labyrinthe en fonction du niveau
 	public static int GetCatCountForMaze(int mazeLevel)
 	{

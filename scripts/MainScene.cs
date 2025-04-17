@@ -34,6 +34,10 @@ public partial class MainScene : Node3D
 	private Label _centerMessageLabel;
 	private Label _loadingDotsLabel;
 	
+	// Ajout des variables membres pour le suivi des états sonores
+	private bool _ambianceSoundPlaying = false;
+	private bool _pauseMusicPlaying = false;
+
 	// Panel pour les high scores
 	private Panel _highScorePanel;
 	
@@ -120,6 +124,9 @@ public partial class MainScene : Node3D
 			GetTree().Root.CallDeferred(Node.MethodName.AddChild, _arduinoManager);
 		}
 		
+		// AJOUT: Jouer le son de début (écran d'intro)
+		PlayStartSound();
+		
 		// Créer le générateur de labyrinthe
 		var mazeGenerator = new VerticalMazeGenerator();
 		mazeGenerator.Name = "MazeGenerator";
@@ -169,6 +176,15 @@ public partial class MainScene : Node3D
 		
 		GD.Print("MainScene initialisé");
 	}
+	
+	private void PlayStartSound()
+	{
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.PlaySound("GameStart");
+			GD.Print("Son de début joué");
+		}
+	}
+
 
 	// Nouvelle méthode pour démarrer directement le jeu sans calibration
 	private void SkipCalibrationAndStart()
@@ -731,6 +747,9 @@ public partial class MainScene : Node3D
 	{
 		_gameState = GameState.Playing;
 		
+		// AJOUT: Démarrer le son d'ambiance du jeu
+		StartAmbianceSound();
+		
 		// Masquer le fond flou et l'overlay bleu
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = false;
@@ -752,7 +771,22 @@ public partial class MainScene : Node3D
 		
 		GD.Print("Jeu démarré - État: Playing");
 	}
-	
+	// Nouvelle méthode pour démarrer le son d'ambiance
+	private void StartAmbianceSound()
+	{
+		if (_ambianceSoundPlaying) return;
+		
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.PlaySound("Ambiance");
+			_ambianceSoundPlaying = true;
+			GD.Print("Son d'ambiance démarré");
+		}
+		
+		// S'assurer que la musique de pause est arrêtée
+		StopPauseMusic();
+	}
+
+
 	// Mettre le jeu en pause
 	private void PauseGame()
 	{
@@ -766,7 +800,9 @@ public partial class MainScene : Node3D
 		{
 			_playerBall.DisableControls();
 		}
-		
+		// AJOUT: Démarrer la musique de pause
+		StartPauseMusic();
+
 		// Afficher l'overlay bleu et le fond flou
 		if (_blueOverlay != null)
 		{
@@ -782,6 +818,18 @@ public partial class MainScene : Node3D
 		GD.Print("Jeu en pause - État: Paused");
 	}
 	
+	private void StartPauseMusic()
+	{
+		if (_pauseMusicPlaying) return;
+		
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.PlaySound("PauseMusic");
+			_pauseMusicPlaying = true;
+			GD.Print("Musique de pause démarrée");
+		}
+	}
+
+
 	// Reprendre le jeu
 	private void ResumeGame()
 	{
@@ -789,7 +837,8 @@ public partial class MainScene : Node3D
 		
 		// Restaurer le temps
 		_remainingTime = _savedTime;
-		
+		StopPauseMusic();
+		StartAmbianceSound();
 		// Masquer le fond flou et l'overlay bleu
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = false;
@@ -809,6 +858,18 @@ public partial class MainScene : Node3D
 		GD.Print("Jeu repris - État: Playing");
 	}
 	
+	// Nouvelle méthode pour arrêter la musique de pause
+	private void StopPauseMusic()
+	{
+		if (!_pauseMusicPlaying) return;
+		
+		// Arrêter la musique de pause (dépend de l'implémentation FMOD)
+		_pauseMusicPlaying = false;
+		GD.Print("Musique de pause arrêtée");
+		
+		// Reprendre le son d'ambiance si nécessaire
+	}
+
 	// Mise à jour générale de l'interface utilisateur
 	private void UpdateUI()
 	{
@@ -1151,9 +1212,13 @@ public partial class MainScene : Node3D
 	// Jouer un son de game over
 	private void PlayGameOverSound()
 	{
-		FMODHelper.PlaySound("GameOver");
-		GD.Print("Son GameOver joué");
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.PlaySound("GameOver");
+			GD.Print("Son GameOver joué");
+		}
 	}
+
+
 
 	
 	private void CheckMazeTransition()
@@ -1480,7 +1545,9 @@ public partial class MainScene : Node3D
 		{
 			_playerBall.DisableControls();
 		}
-		
+		// AJOUT: Arrêter le son d'ambiance
+		StopAllSounds();
+
 		// Sauvegarder le score
 		SaveScore();
 		
@@ -1509,6 +1576,22 @@ public partial class MainScene : Node3D
 		GD.Print("Game Over - Plus de temps! État: GameOver");
 	}
 	
+	private void StopAllSounds()
+	{
+		// Arrêter le son d'ambiance
+		_ambianceSoundPlaying = false;
+		
+		// Arrêter la musique de pause
+		_pauseMusicPlaying = false;
+		
+		// Arrêter tous les sons
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.StopAllSounds();
+		}
+		
+		GD.Print("Tous les sons arrêtés");
+	}
+
 	private void StartGameAfterRestart()
 	{
 		// Définir l'état du jeu

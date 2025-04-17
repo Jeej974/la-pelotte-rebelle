@@ -19,6 +19,12 @@ public partial class PlayerBall : RigidBody3D
 	private const float ARDUINO_AMPLIFICATION = 4.0f; // FORTEMENT AUGMENTÉ pour des mouvements plus marqués
 
 
+	private bool _isRolling = false;
+	private float _rollingSoundThreshold = 0.8f; // Vitesse minimale pour déclencher le son
+	private float _lastSoundUpdateTime = 0f;
+	private const float SOUND_UPDATE_INTERVAL = 0.2f; // Intervalle pour mettre à jour le son (en secondes)
+
+
 	// Référence au gestionnaire Arduino
 	private ArduinoManager _arduinoManager;
 	
@@ -157,6 +163,13 @@ public partial class PlayerBall : RigidBody3D
 		// Faire tourner la balle de laine quand elle se déplace
 		RotateWoolBall(delta);
 		
+		// Gérer le son de roulement
+		if (_lastSoundUpdateTime >= SOUND_UPDATE_INTERVAL)
+		{
+			UpdateRollingSound();
+			_lastSoundUpdateTime = 0f;
+		}
+
 		// Gestion du cooldown de téléportation
 		if (_teleportationCooldown)
 		{
@@ -169,6 +182,77 @@ public partial class PlayerBall : RigidBody3D
 		}
 	}
 	
+	private void UpdateRollingSound()
+	{
+		// Ne pas gérer le son si les contrôles sont désactivés ou si la balle est téléportée
+		if (!_controlsEnabled || _isBeingTeleported) 
+		{
+			if (_isRolling)
+			{
+				StopRollingSound();
+			}
+			return;
+		}
+		
+		// Vérifier si la pelote roule suffisamment vite pour émettre un son
+		float speed = LinearVelocity.Length();
+		
+		// Démarrer le son si la vitesse dépasse le seuil et que le son n'est pas déjà en cours
+		if (speed > _rollingSoundThreshold && !_isRolling)
+		{
+			StartRollingSound(speed);
+		}
+		// Arrêter le son si la vitesse est trop faible et que le son est en cours
+		else if (speed <= _rollingSoundThreshold * 0.5f && _isRolling)
+		{
+			StopRollingSound();
+		}
+		// Mettre à jour le son si déjà en cours (pour ajuster le volume/pitch en fonction de la vitesse)
+		else if (_isRolling && speed > _rollingSoundThreshold)
+		{
+			UpdateRollingSoundParameters(speed);
+		}
+	}
+
+	// Nouvelle méthode pour démarrer le son de roulement
+	private void StartRollingSound(float speed)
+	{
+		if (AudioManager.Instance != null) {
+			AudioManager.Instance.PlaySound3D("RollingBall", this);
+			
+			// Ajuster les paramètres en fonction de la vitesse
+			float speedFactor = Mathf.Clamp(speed / 10f, 0.5f, 2.0f);
+			AudioManager.Instance.SetGlobalParameter("Speed", speedFactor);
+			
+			_isRolling = true;
+			GD.Print($"Son de roulement démarré - Vitesse: {speed:F2}");
+		}
+	}
+
+
+	// Nouvelle méthode pour mettre à jour les paramètres du son de roulement
+	private void UpdateRollingSoundParameters(float speed)
+	{
+		if (AudioManager.Instance != null) {
+			float speedFactor = Mathf.Clamp(speed / 10f, 0.5f, 2.0f);
+			AudioManager.Instance.SetGlobalParameter("Speed", speedFactor);
+		}
+	}
+
+
+	// Nouvelle méthode pour arrêter le son de roulement
+	private void StopRollingSound()
+	{
+		// Marquer le son comme arrêté
+		_isRolling = false;
+		GD.Print("Son de roulement arrêté");
+		
+		// Note: L'arrêt effectif dépend de l'implémentation de FMOD
+		// Il pourrait être nécessaire d'ajouter une méthode spécifique pour arrêter le son
+	}
+
+
+
 	// Nouvelle méthode pour faire tourner la balle de laine en fonction du mouvement
 	private void RotateWoolBall(double delta)
 	{
@@ -248,6 +332,11 @@ public partial class PlayerBall : RigidBody3D
 		
 		_isBeingTeleported = true;
 		
+		if (_isRolling)
+		{
+			StopRollingSound();
+		}
+
 		// Geler le corps physique pendant la téléportation
 		Freeze = true;
 		
@@ -469,7 +558,11 @@ public partial class PlayerBall : RigidBody3D
 		// Réinitialiser les états de téléportation
 		_isBeingTeleported = false;
 		_teleportationCooldown = false;
-		
+		if (_isRolling)
+		{
+			StopRollingSound();
+		}
+
 		// S'assurer que les contrôles sont activés
 		_controlsEnabled = true;
 		
