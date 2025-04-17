@@ -4,7 +4,7 @@ using System;
 public partial class PlayerBall : RigidBody3D
 {
 	[Export]
-	private float _moveForce = 100.0f; // AUGMENTÉ À 150 pour des mouvements beaucoup plus rapides
+	private float _moveForce = 30.0f; // AUGMENTÉ À 150 pour des mouvements beaucoup plus rapides
 	
 	[Export]
 	private float _jumpForce = 20.0f;

@@ -10,7 +10,7 @@ using System.Threading;
 public partial class ArduinoManager : Node
 {
 	// Configuration du port COM
-	private const string PORT_NAME = "COM5";  // Port à utiliser (à ajuster si nécessaire)
+	private const string PORT_NAME = "COM3";  // Port à utiliser (à ajuster si nécessaire)
 	private const int BAUD_RATE = 9600;       // Vitesse de communication
 	
 	// SINGLETON PATTERN - Instance unique
