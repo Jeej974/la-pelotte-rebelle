@@ -28,5 +28,3 @@ keep_aspect = 0
 doppler_tracking = 2
 current = true
 fov = 59.5495
-
-[node name="FmodListener3D" type="FmodListener3D" parent="."]
