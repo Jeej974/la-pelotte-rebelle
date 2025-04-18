@@ -1,6 +1,12 @@
 using Godot;
 using System;
 
+/**
+ * Teleporter - Gère les portails entre différents labyrinthes
+ * 
+ * Cette classe implémente les zones d'entrée et de sortie des labyrinthes,
+ * avec des effets visuels et la logique de téléportation du joueur.
+ */
 public partial class Teleporter : Area3D
 {
 	[Export]
@@ -16,17 +22,21 @@ public partial class Teleporter : Area3D
 	[Signal]
 	public delegate void PlayerEnteredExitTeleporterEventHandler(Node3D body, int mazeIndex);
 	
-	// Nouvel état pour éviter les téléportations multiples
+	// État de téléporation pour éviter les déclenchements multiples
 	private bool _teleportActive = false;
 	private float _cooldownTimer = 0f;
-	private const float COOLDOWN_TIME = 1.5f; // Temps de cooldown en secondes
+	private const float COOLDOWN_TIME = 1.5f;
 	
+	// Composants visuels
 	private OmniLight3D _light;
 	private AnimationPlayer _animationPlayer;
 	
+	/**
+	 * Initialisation du téléporteur
+	 */
 	public override void _Ready()
 	{
-		// Configurer la forme de collision
+		// Configuration de la forme de collision
 		var collisionShape = GetNode<CollisionShape3D>("CollisionShape3D");
 		if (collisionShape != null && collisionShape.Shape == null)
 		{
@@ -36,19 +46,22 @@ public partial class Teleporter : Area3D
 			collisionShape.Shape = capsuleShape;
 		}
 		
-		// Appliquer la couleur
+		// Application de la couleur configurée
 		ApplyColor(TeleporterColor);
 		
-		// Connecter le signal de collision
+		// Connexion du signal de collision
 		BodyEntered += OnBodyEntered;
 		
-		// Créer et démarrer l'animation de pulsation
+		// Création de l'animation de pulsation
 		CreatePulseAnimation();
 	}
 	
+	/**
+	 * Mise à jour par frame pour la gestion du cooldown
+	 */
 	public override void _Process(double delta)
 	{
-		// Gérer le cooldown pour éviter les téléportations multiples
+		// Gestion du cooldown anti-spam de téléportation
 		if (_teleportActive)
 		{
 			_cooldownTimer -= (float)delta;
@@ -59,10 +72,12 @@ public partial class Teleporter : Area3D
 		}
 	}
 	
-	// Méthode pour appliquer la couleur au téléporteur
+	/**
+	 * Applique une couleur personnalisée au téléporteur
+	 */
 	public void ApplyColor(Color color)
 	{
-		// Mettre à jour la couleur des particules
+		// Application aux particules
 		var particles = GetNodeOrNull<GpuParticles3D>("GPUParticles3D");
 		if (particles != null)
 		{
@@ -73,25 +88,27 @@ public partial class Teleporter : Area3D
 			}
 		}
 		
-		// Mettre à jour la couleur de la lumière
+		// Application à la lumière
 		_light = GetNodeOrNull<OmniLight3D>("OmniLight3D");
 		if (_light != null)
 		{
 			_light.LightColor = color;
 		}
 		
-		// Appliquer la couleur au modèle 3D
+		// Application au modèle 3D
 		var model = GetNodeOrNull<Node3D>("TeleporterModel");
 		if (model != null)
 		{
 			ApplyColorToModel(model, color);
 		}
 		
-		// Sauvegarder la couleur
+		// Sauvegarde de la couleur
 		TeleporterColor = color;
 	}
 	
-	// Méthode récursive pour appliquer la couleur au modèle
+	/**
+	 * Applique récursivement une couleur à tous les meshes du modèle
+	 */
 	private void ApplyColorToModel(Node node, Color color)
 	{
 		if (node is MeshInstance3D meshInstance)
@@ -113,7 +130,9 @@ public partial class Teleporter : Area3D
 		}
 	}
 	
-	// Créer une animation de pulsation pour la lumière
+	/**
+	 * Crée l'animation de pulsation pour la lumière du téléporteur
+	 */
 	private void CreatePulseAnimation()
 	{
 		if (_light == null) return;
@@ -124,54 +143,56 @@ public partial class Teleporter : Area3D
 		var pulseAnimation = new Animation();
 		var trackIdx = pulseAnimation.AddTrack(Animation.TrackType.Value);
 		
-		// Utiliser le chemin correct pour accéder à la propriété light_energy de OmniLight3D
-		// Enlever le préfixe % qui cause le problème
+		// Chemin d'accès à la propriété d'intensité lumineuse
 		pulseAnimation.TrackSetPath(trackIdx, "OmniLight3D:light_energy");
 		
-		// Animation de pulsation de la lumière (sur 2 secondes)
+		// Keyframes de l'animation de pulsation
 		pulseAnimation.TrackInsertKey(trackIdx, 0.0f, 2.0f);
 		pulseAnimation.TrackInsertKey(trackIdx, 1.0f, 4.0f);
 		pulseAnimation.TrackInsertKey(trackIdx, 2.0f, 2.0f);
 		pulseAnimation.LoopMode = Animation.LoopModeEnum.Linear;
 		
-		// Créer une librairie d'animation
+		// Création et ajout de la librairie d'animation
 		var animLib = new AnimationLibrary();
 		animLib.AddAnimation("pulse", pulseAnimation);
 		
-		// Ajouter la librairie au player d'animation
 		_animationPlayer.AddAnimationLibrary("", animLib);
 		
-		// Démarrer l'animation
+		// Démarrage de l'animation
 		_animationPlayer.Play("pulse");
 	}
 	
-	// Méthode appelée quand un corps entre dans le téléporteur
+	/**
+	 * Gestion de la collision avec un corps
+	 */
 	private void OnBodyEntered(Node3D body)
 	{
-		// Si ce n'est pas un téléporteur de sortie ou si le cooldown est actif, ignorer
+		// Ignorer si ce n'est pas un téléporteur de sortie ou si en cooldown
 		if (!IsExit || _teleportActive) return;
 		
-		// Si c'est le joueur, émettre le signal
+		// Vérifier si c'est le joueur
 		if (body is PlayerBall)
 		{
-			// Activer le cooldown pour éviter les téléportations multiples
+			// Activer le cooldown
 			_teleportActive = true;
 			_cooldownTimer = COOLDOWN_TIME;
 			
 			// Émettre le signal pour la téléportation
 			EmitSignal(SignalName.PlayerEnteredExitTeleporter, body, MazeIndex);
 			
-			// Effet visuel pour la téléportation
+			// Effet visuel
 			PlayTeleportEffect();
 			
 			GD.Print($"Joueur entré dans le téléporteur de sortie du labyrinthe {MazeIndex}");
 		}
 	}
 	
-	// Ajouter un effet visuel lors de la téléportation
+	/**
+	 * Joue un effet visuel lors de la téléportation
+	 */
 	private void PlayTeleportEffect()
 	{
-		// Augmenter l'intensité de la lumière momentanément
+		// Effet sur la lumière
 		if (_light != null)
 		{
 			// Arrêter l'animation existante
@@ -180,17 +201,17 @@ public partial class Teleporter : Area3D
 				_animationPlayer.Stop();
 			}
 			
-			// Créer un effet de flash
+			// Animation de flash
 			var tween = CreateTween();
 			tween.SetEase(Tween.EaseType.Out);
 			tween.SetTrans(Tween.TransitionType.Cubic);
 			
-			// Augmenter l'intensité rapidement
+			// Augmentation rapide de l'intensité
 			tween.TweenProperty(_light, "light_energy", 8.0f, 0.2f);
-			// Puis revenir à la normale
+			// Retour progressif à la normale
 			tween.TweenProperty(_light, "light_energy", 2.0f, 1.0f);
 			
-			// Redémarrer l'animation de pulsation après l'effet
+			// Redémarrage de l'animation de pulsation après l'effet
 			tween.TweenCallback(Callable.From(() => {
 				if (_animationPlayer != null)
 				{
@@ -199,17 +220,17 @@ public partial class Teleporter : Area3D
 			}));
 		}
 		
-		// Intensifier les particules pendant un court instant
+		// Effet sur les particules
 		var particles = GetNodeOrNull<GpuParticles3D>("GPUParticles3D");
 		if (particles != null)
 		{
-			// Sauvegarder le montant original
+			// Sauvegarde du nombre initial de particules
 			int originalAmount = particles.Amount;
 			
-			// Augmenter temporairement le nombre de particules
+			// Augmentation temporaire du nombre de particules
 			particles.Amount = originalAmount * 3;
 			
-			// Créer un timer pour restaurer le nombre original
+			// Timer pour restaurer le nombre original
 			var timer = new Timer();
 			timer.WaitTime = 1.0f;
 			timer.OneShot = true;

@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://bj626uxki85yr"
-path="res://.godot/imported/bruit fin.wav-898a0e1c4cbf4fb40db9fbf6087a5672.sample"
+uid="uid://br88yificrje"
+path="res://.godot/imported/son_bonus.wav-9e68ac9734cc60d740cffc060079f878.sample"
 
 [deps]
 
-source_file="res://assets/audio/bruit fin.wav"
-dest_files=["res://.godot/imported/bruit fin.wav-898a0e1c4cbf4fb40db9fbf6087a5672.sample"]
+source_file="res://assets/audio/son_bonus.wav"
+dest_files=["res://.godot/imported/son_bonus.wav-9e68ac9734cc60d740cffc060079f878.sample"]
 
 [params]
 

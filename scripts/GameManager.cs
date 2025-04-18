@@ -4,6 +4,12 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.IO;
 
+/**
+ * GameManager - Gestionnaire global du jeu
+ * 
+ * Contrôle l'état du jeu, le timer, les scores, et les événements centraux.
+ * Gère également les effets visuels comme le chemin révélé par le chat Siamois.
+ */
 public partial class GameManager : Node
 {
 	[Export]
@@ -18,28 +24,23 @@ public partial class GameManager : Node
 	[Export]
 	private bool _enableTimeLimit = true;
 	
-	// Temps de jeu restant
+	// Temps de jeu et état
 	private float _remainingTime;
 	private bool _gameOver = false;
 	
-	// Signal émis quand le temps est écoulé
+	// Signals pour communiquer avec d'autres systèmes
 	[Signal]
 	public delegate void GameOverEventHandler();
 	
-	// Signal émis quand un effet de chat est appliqué
 	[Signal]
 	public delegate void CatEffectAppliedEventHandler(CatType type, float value);
 	
-	// Référence au générateur de labyrinthe
+	// Références aux composants du jeu
 	private VerticalMazeGenerator _mazeGenerator;
-	
-	// Nœuds pour l'affichage du chemin
 	private List<Node3D> _pathMarkers = new List<Node3D>();
-	
-	// Référence à la MainScene
 	private MainScene _mainScene;
 	
-	// Struct pour les entrées de score
+	// Structure pour le stockage des scores
 	[Serializable]
 	private struct ScoreEntry
 	{
@@ -55,31 +56,37 @@ public partial class GameManager : Node
 		}
 	}
 	
-	// Liste pour stocker les scores
+	// Liste des meilleurs scores
 	private List<ScoreEntry> _highScores = new List<ScoreEntry>();
 	
+	/**
+	 * Initialisation du gestionnaire de jeu
+	 */
 	public override void _Ready()
 	{
-		// Initialiser le temps de jeu
+		// Initialisation du temps de jeu
 		_remainingTime = _initialGameTime;
 		
-		// Mettre à jour le label de temps
+		// Mise à jour initiale de l'UI
 		UpdateTimeLabel();
 		
-		// Rechercher le générateur de labyrinthe
+		// Recherche différée des composants du jeu
 		CallDeferred(nameof(FindMazeGenerator));
 		
-		// Rechercher la MainScene
+		// Recherche de la scène principale
 		_mainScene = GetTree().Root.GetNode<MainScene>("MainScene");
 		if (_mainScene == null)
 		{
 			GD.PrintErr("MainScene non trouvée!");
 		}
 		
-		// Charger les scores existants
+		// Chargement des scores existants
 		LoadHighScores();
 	}
 	
+	/**
+	 * Recherche le générateur de labyrinthe dans la scène
+	 */
 	private void FindMazeGenerator()
 	{
 		_mazeGenerator = GetTree().Root.FindChild("MazeGenerator", true, false) as VerticalMazeGenerator;
@@ -89,17 +96,20 @@ public partial class GameManager : Node
 		}
 	}
 	
+	/**
+	 * Mise à jour du temps et vérification de fin de jeu
+	 */
 	public override void _Process(double delta)
 	{
 		if (_gameOver || !_enableTimeLimit) return;
 		
-		// Réduire le temps restant
+		// Décrémentation du temps restant
 		_remainingTime -= (float)delta;
 		
-		// Mettre à jour l'affichage du temps
+		// Mise à jour de l'affichage
 		UpdateTimeLabel();
 		
-		// Vérifier si le temps est écoulé
+		// Vérification de fin de jeu
 		if (_remainingTime <= 0)
 		{
 			_remainingTime = 0;
@@ -107,7 +117,7 @@ public partial class GameManager : Node
 			EmitSignal(SignalName.GameOver);
 			GD.Print("Temps écoulé! Game Over!");
 			
-			// Notifier la MainScene
+			// Notification à la scène principale
 			if (_mainScene != null)
 			{
 				_mainScene.Call("GameOver");
@@ -115,7 +125,9 @@ public partial class GameManager : Node
 		}
 	}
 	
-	// Mettre à jour l'affichage du temps
+	/**
+	 * Met à jour l'affichage du temps avec code couleur
+	 */
 	private void UpdateTimeLabel()
 	{
 		if (_timeLabel != null)
@@ -124,43 +136,47 @@ public partial class GameManager : Node
 			int seconds = (int)(_remainingTime % 60);
 			_timeLabel.Text = $"Temps: {minutes:00}:{seconds:00}";
 			
-			// Changer la couleur si le temps est presque écoulé
+			// Code couleur selon le temps restant
 			if (_remainingTime < 30)
 			{
-				_timeLabel.Modulate = new Color(1, 0, 0); // Rouge
+				_timeLabel.Modulate = new Color(1, 0, 0); // Rouge pour critique
 			}
 			else if (_remainingTime < 60)
 			{
-				_timeLabel.Modulate = new Color(1, 0.5f, 0); // Orange
+				_timeLabel.Modulate = new Color(1, 0.5f, 0); // Orange pour attention
 			}
 			else
 			{
-				_timeLabel.Modulate = new Color(1, 1, 1); // Blanc
+				_timeLabel.Modulate = new Color(1, 1, 1); // Blanc pour normal
 			}
 		}
 	}
 	
-	// Ajouter du temps (positif ou négatif)
+	/**
+	 * Ajoute ou retire du temps (utilisé par les chats)
+	 */
 	public void AddTime(float seconds)
 	{
 		if (_gameOver) return;
 		
 		_remainingTime += seconds;
 		
-		// S'assurer que le temps ne devient pas négatif
+		// Empêcher le temps négatif
 		if (_remainingTime < 0)
 		{
 			_remainingTime = 0;
 		}
 		
-		// Afficher un message indiquant l'effet
+		// Afficher l'effet
 		ShowCatEffect(seconds);
 		
-		// Émettre le signal pour informer d'autres composants
-		EmitSignal(SignalName.CatEffectApplied, (int)CatType.Orange, seconds); // Type provisoire
+		// Notification aux autres systèmes
+		EmitSignal(SignalName.CatEffectApplied, (int)CatType.Orange, seconds);
 	}
 	
-	// Afficher un message temporaire pour l'effet du chat
+	/**
+	 * Affiche un effet temporaire pour les bonus/malus de temps
+	 */
 	private void ShowCatEffect(float seconds)
 	{
 		if (_catEffectLabel == null) return;
@@ -183,10 +199,10 @@ public partial class GameManager : Node
 		_catEffectLabel.Modulate = effectColor;
 		_catEffectLabel.Visible = true;
 		
-		// Créer un timer pour masquer le message après un délai
+		// Timer pour masquer le message après un délai
 		var timer = new Timer();
 		AddChild(timer);
-		timer.WaitTime = 2.0f; // 2 secondes
+		timer.WaitTime = 2.0f;
 		timer.OneShot = true;
 		timer.Timeout += () => {
 			_catEffectLabel.Visible = false;
@@ -195,7 +211,9 @@ public partial class GameManager : Node
 		timer.Start();
 	}
 	
-	// Révéler le chemin (effet du chat siamois)
+	/**
+	 * Révèle le chemin du labyrinthe (effet du chat Siamois)
+	 */
 	public void RevealPath()
 	{
 		if (_mazeGenerator == null)
@@ -204,20 +222,20 @@ public partial class GameManager : Node
 			return;
 		}
 		
-		// D'abord, supprimer les marqueurs de chemin existants
+		// Nettoyer les marqueurs existants
 		ClearPathMarkers();
 		
-		// Obtenir le labyrinthe actuel
+		// Identifier le labyrinthe actuel
 		int currentMazeIndex = GetCurrentMazeIndex();
 		if (currentMazeIndex < 0) return;
 		
-		// Calculer le chemin du labyrinthe actuel
+		// Créer les marqueurs pour ce labyrinthe
 		CreatePathMarkers(currentMazeIndex);
 		
-		// Créer un timer pour supprimer les marqueurs après un certain temps
+		// Timer pour supprimer les marqueurs après un délai
 		var timer = new Timer();
 		AddChild(timer);
-		timer.WaitTime = 7.0f; // 7 secondes pour voir le chemin
+		timer.WaitTime = 7.0f;
 		timer.OneShot = true;
 		timer.Timeout += ClearPathMarkers;
 		timer.Start();
@@ -242,12 +260,12 @@ public partial class GameManager : Node
 		}
 	}
 	
-	// Obtenir l'index du labyrinthe actuel
+	/**
+	 * Détermine l'index du labyrinthe où se trouve le joueur
+	 */
 	private int GetCurrentMazeIndex()
 	{
-		// Cette fonction devrait être synchronisée avec la méthode équivalente dans MainScene
-		
-		// Trouver le joueur
+		// Recherche du joueur
 		var player = GetTree().Root.FindChild("PlayerBall", true, false) as PlayerBall;
 		if (player == null)
 		{
@@ -255,7 +273,7 @@ public partial class GameManager : Node
 			return -1;
 		}
 		
-		// Vérifier dans quel labyrinthe se trouve le joueur
+		// Vérification de la position du joueur par rapport aux labyrinthes
 		for (int i = 0; i < _mazeGenerator._mazeSizes.Count; i++)
 		{
 			Node3D maze = GetNode<Node3D>($"/root/MainScene/MazeGenerator/Maze_{i}");
@@ -274,68 +292,68 @@ public partial class GameManager : Node
 		return -1;
 	}
 	
-	// Créer des marqueurs pour visualiser le chemin
+	/**
+	 * Crée des marqueurs visuels pour indiquer le chemin
+	 */
 	private void CreatePathMarkers(int mazeIndex)
 	{
-		// Obtenir la taille du labyrinthe
+		// Récupération des informations du labyrinthe
 		int mazeSize = _mazeGenerator._mazeSizes[mazeIndex];
-		
-		// Récupérer les positions d'entrée et de sortie
 		Vector2I entrancePos = _mazeGenerator.GetEntrancePosition(mazeSize, mazeIndex);
 		Vector2I exitPos = _mazeGenerator.GetExitPosition(mazeSize, mazeIndex);
 		
-		// Récupérer le nœud du labyrinthe actuel
+		// Récupération du nœud du labyrinthe
 		Node3D mazeNode = GetNode<Node3D>($"/root/MainScene/MazeGenerator/Maze_{mazeIndex}");
 		if (mazeNode == null) return;
 		
-		// Dans une implémentation réelle, nous utiliserions un algorithme de recherche de chemin
-		// comme A* pour trouver le chemin optimal. Pour simplifier, nous allons créer un chemin direct.
-		
-		// Créer des marqueurs d'entrée à la sortie
+		// Création des marqueurs horizontaux (de l'entrée à la sortie en X)
 		for (int x = entrancePos.X; x <= exitPos.X; x++)
 		{
 			CreatePathMarker(mazeNode, x, entrancePos.Y, mazeIndex);
 		}
 		
+		// Création des marqueurs verticaux (jusqu'à la sortie en Y)
 		for (int y = entrancePos.Y; y <= exitPos.Y; y++)
 		{
 			CreatePathMarker(mazeNode, exitPos.X, y, mazeIndex);
 		}
 	}
 	
-	// Créer un marqueur de chemin à une position spécifique
+	/**
+	 * Crée un marqueur individuel pour le chemin
+	 */
 	private void CreatePathMarker(Node3D mazeNode, int x, int y, int mazeIndex)
 	{
 		var marker = new MeshInstance3D();
 		marker.Name = $"PathMarker_{x}_{y}";
 		
-		// Créer un mesh pour le marqueur (un petit cylindre)
+		// Création du mesh (cylindre lumineux)
 		var cylinderMesh = new CylinderMesh();
 		cylinderMesh.Height = 0.1f;
 		cylinderMesh.BottomRadius = 0.2f;
 		cylinderMesh.TopRadius = 0.2f;
 		marker.Mesh = cylinderMesh;
 		
-		// Positionner le marqueur légèrement au-dessus du sol
+		// Positionnement légèrement au-dessus du sol
 		marker.Position = new Vector3(
 			x * _mazeGenerator._cellSize,
 			0.05f,
 			y * _mazeGenerator._cellSize
 		);
 		
-		// Matériau brillant pour le marqueur
+		// Matériau lumineux pour meilleure visibilité
 		var material = new StandardMaterial3D();
-		material.AlbedoColor = new Color(0.2f, 0.8f, 1.0f, 0.7f); // Bleu clair semi-transparent
+		material.AlbedoColor = new Color(0.2f, 0.8f, 1.0f, 0.7f); // Bleu transparent
 		material.EmissionEnabled = true;
 		material.Emission = new Color(0.2f, 0.5f, 1.0f);
 		material.EmissionEnergyMultiplier = 2.0f;
 		
 		marker.MaterialOverride = material;
 		
-		// Ajouter le marqueur au labyrinthe
+		// Ajout au labyrinthe
 		mazeNode.AddChild(marker);
 		
-		// Ajouter à la liste pour pouvoir le supprimer plus tard
+		// Conservation de la référence pour nettoyage ultérieur
 		_pathMarkers.Add(marker);
 		
 		// Animation de pulsation
@@ -345,7 +363,9 @@ public partial class GameManager : Node
 		tween.TweenProperty(marker, "scale", new Vector3(0.8f, 0.8f, 0.8f), 0.5f);
 	}
 	
-	// Supprimer tous les marqueurs de chemin
+	/**
+	 * Supprime tous les marqueurs du chemin
+	 */
 	private void ClearPathMarkers()
 	{
 		foreach (var marker in _pathMarkers)
@@ -359,7 +379,9 @@ public partial class GameManager : Node
 		_pathMarkers.Clear();
 	}
 	
-	// Réinitialiser le gestionnaire pour un nouveau jeu
+	/**
+	 * Réinitialise le gestionnaire pour une nouvelle partie
+	 */
 	public void Reset()
 	{
 		_remainingTime = _initialGameTime;
@@ -368,14 +390,15 @@ public partial class GameManager : Node
 		UpdateTimeLabel();
 	}
 	
-	// Charger les scores à partir du fichier JSON
+	/**
+	 * Charge les scores à partir du fichier JSON
+	 */
 	private void LoadHighScores()
 	{
 		try
 		{
 			string filePath = "user://saves/highscores.json";
 			
-			// Vérifier si le fichier existe
 			if (Godot.FileAccess.FileExists(filePath))
 			{
 				using var file = Godot.FileAccess.Open(filePath, Godot.FileAccess.ModeFlags.Read);
@@ -383,20 +406,19 @@ public partial class GameManager : Node
 				{
 					string jsonContent = file.GetAsText();
 					
-					// Désérialiser le JSON en liste de ScoreEntry
 					var loadedScores = JsonSerializer.Deserialize<List<ScoreEntry>>(jsonContent);
 					if (loadedScores != null)
 					{
 						_highScores = loadedScores;
 						
-						// Trier les scores chargés
+						// Tri des scores
 						_highScores.Sort((a, b) => {
 							int mazeCompare = b.mazesCompleted.CompareTo(a.mazesCompleted);
 							if (mazeCompare != 0) return mazeCompare;
 							return b.totalCats.CompareTo(a.totalCats);
 						});
 						
-						// Limiter à 10 scores maximum
+						// Limitation à 10 scores
 						if (_highScores.Count > 10)
 						{
 							_highScores.RemoveRange(10, _highScores.Count - 10);
@@ -419,37 +441,40 @@ public partial class GameManager : Node
 		}
 	}
 	
-	// Ajouter un nouveau score
+	/**
+	 * Ajoute un nouveau score
+	 */
 	public void AddScore(int mazes, int cats)
 	{
 		var newScore = new ScoreEntry(mazes, cats);
 		
-		// Ajouter le score à la liste
 		_highScores.Add(newScore);
 		
-		// Trier les scores
+		// Tri des scores
 		_highScores.Sort((a, b) => {
 			int mazeCompare = b.mazesCompleted.CompareTo(a.mazesCompleted);
 			if (mazeCompare != 0) return mazeCompare;
 			return b.totalCats.CompareTo(a.totalCats);
 		});
 		
-		// Limiter à 10 scores
+		// Limitation à 10 scores
 		if (_highScores.Count > 10)
 		{
 			_highScores.RemoveRange(10, _highScores.Count - 10);
 		}
 		
-		// Sauvegarder les scores
+		// Sauvegarde des scores
 		SaveHighScores();
 	}
 	
-	// Sauvegarder les scores dans un fichier JSON
+	/**
+	 * Sauvegarde les scores dans un fichier JSON
+	 */
 	private void SaveHighScores()
 	{
 		try 
 		{
-			// Créer le répertoire de sauvegarde si nécessaire
+			// Création du répertoire de sauvegarde si nécessaire
 			string saveDir = "user://saves";
 			if (!Godot.DirAccess.DirExistsAbsolute(saveDir))
 			{
@@ -458,14 +483,14 @@ public partial class GameManager : Node
 			
 			string filePath = "user://saves/highscores.json";
 			
-			// Sérialiser la liste des scores en JSON
+			// Sérialisation en JSON
 			var jsonOptions = new JsonSerializerOptions 
 			{
 				WriteIndented = true
 			};
 			string jsonString = JsonSerializer.Serialize(_highScores, jsonOptions);
 			
-			// Écrire dans le fichier
+			// Écriture dans le fichier
 			using var file = Godot.FileAccess.Open(filePath, Godot.FileAccess.ModeFlags.Write);
 			if (file != null)
 			{

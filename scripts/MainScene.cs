@@ -2,78 +2,75 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using System.IO;
-using System.Linq; // Ajout pour utiliser ToList()
+using System.Linq;
 
+/**
+ * MainScene - Contrôleur principal du jeu
+ * 
+ * Gère le flux du jeu, l'interface utilisateur, et coordonne les interactions
+ * entre les différents systèmes (labyrinthe, joueur, audio, scores, etc.).
+ * Contrôle les transitions d'états et la logique globale de progression.
+ */
 public partial class MainScene : Node3D
 {
 	[Export]
 	private PackedScene _playerBallScene;
 	
-	// Référence au générateur de labyrinthe
+	// Références aux différents composants du jeu
 	private VerticalMazeGenerator _mazeGenerator;
-	
-	// Référence au gestionnaire Arduino
 	private ArduinoManager _arduinoManager;
-	
-	// Charger la police
-	private Font font = GD.Load<Font>("res://fonts/PoetsenOne-Regular.ttf");
-	
-	// Référence à la balle du joueur
 	private PlayerBall _playerBall;
 	
-	// Interface utilisateur
+	// Ressources partagées
+	private Font font = GD.Load<Font>("res://fonts/PoetsenOne-Regular.ttf");
+	
+	// Éléments d'interface utilisateur
 	private Label _infoLabel;
 	private Label _mazeCountLabel;
-	private Label _timeLabel;     // Label pour afficher le temps
-	private Label _catEffectLabel; // Label pour les effets des chats
-	private Label _scoreLabel;     // Label pour afficher le score
+	private Label _timeLabel;
+	private Label _catEffectLabel;
+	private Label _scoreLabel;
 	private Panel _uiPanel;
-	
-	// Texte central pour instructions
 	private Label _centerMessageLabel;
 	private Label _loadingDotsLabel;
+	private Panel _highScorePanel;
 	
-	// Ajout des variables membres pour le suivi des états sonores
+	// États sonores pour le suivi des transitions
 	private bool _ambianceSoundPlaying = false;
 	private bool _pauseMusicPlaying = false;
 
-	// Panel pour les high scores
-	private Panel _highScorePanel;
-	
 	// État du jeu
 	private int _currentMazeIndex = 0;
 	private bool _gameCompleted = false;
 	
 	// Gestion du temps
 	[Export]
-	private float _initialGameTime = 60.0f; // 60 secondes de base
+	private float _initialGameTime = 60.0f;
 	private float _remainingTime;
-	private float _savedTime; // Pour stocker le temps pendant la pause
+	private float _savedTime;
 	private bool _timeOver = false;
 	
-	// Flag pour sauter le calibrage lors du redémarrage
+	// Flags de session
 	private static bool _isFirstStart = true;
-	
-	// Flag pour le redémarrage direct
 	private static bool _isRestarting = false;
 	
-	// États du jeu
+	// Énumération des états possibles du jeu
 	private enum GameState
 	{
-		Calibrating,
-		WaitingToStart,
-		Playing,
-		Paused,
-		GameOver,
-		ShowingAllMazes,
-		GameOverFinal,
-		Victory,
-		CameraTravel // Nouvel état pour le travelling de caméra
+		Calibrating,        // Calibrage initial de l'Arduino
+		WaitingToStart,     // Écran d'attente, prêt à démarrer
+		Playing,            // Jeu en cours
+		Paused,             // Jeu en pause
+		GameOver,           // Fin de partie initiale
+		ShowingAllMazes,    // Affichage des labyrinthes complétés
+		GameOverFinal,      // Écran de fin final
+		Victory,            // Victoire (non utilisé actuellement)
+		CameraTravel        // Déplacement de caméra cinématique
 	}
+	
 	private GameState _gameState = GameState.Calibrating;
 	
-	// Score
+	// Suivi du score
 	private int _mazesCompleted = 0;
 	private Dictionary<CatType, int> _catsCollected = new Dictionary<CatType, int>()
 	{
@@ -86,36 +83,35 @@ public partial class MainScene : Node3D
 
 	private List<ScoreManager.ScoreEntry> _highScores = new List<ScoreManager.ScoreEntry>();
 	
-	
-	// Les objets exportés depuis l'inspecteur
+	// Références aux éléments de l'interface
 	[Export] public SubViewport Viewport3D;
 	[Export] public TextureRect BlurredDisplay;
 	[Export] public ShaderMaterial BlurShaderMaterial;
 	
-	// Canvas pour les éléments UI
+	// Canvas layers pour organisation de l'UI
 	private CanvasLayer _uiCanvas;
 	private CanvasLayer _blurCanvas;
 	private CanvasLayer _messageCanvas;
 	private CanvasLayer _scoreCanvas;
-	
-	// Nouvel élément pour l'effet de flou bleu
 	private ColorRect _blueOverlay;
 	
-	// Flag pour éviter les pressions répétées du bouton
+	// Contrôle des interactions
 	private float _buttonCooldownTimer = 0;
-	private const float BUTTON_COOLDOWN = 0.2f; // Réduit pour plus de réactivité
+	private const float BUTTON_COOLDOWN = 0.2f;
 	
-	// Camera traveling
+	// Composants pour le travelling de caméra
 	private Camera3D _globalCamera;
 	private Tween _cameraTween;
 	
-
+	/**
+	 * Initialisation de la scène principale
+	 */
 	public override void _Ready()
 	{
-		// Initialiser le temps de jeu
+		// Initialisation du temps de jeu
 		_remainingTime = _initialGameTime;
 		
-		// Utiliser l'instance existante de l'Arduino Manager ou en créer une nouvelle
+		// Récupération ou création de l'ArduinoManager
 		_arduinoManager = ArduinoManager.Instance;
 		if (_arduinoManager == null)
 		{
@@ -124,52 +120,50 @@ public partial class MainScene : Node3D
 			GetTree().Root.CallDeferred(Node.MethodName.AddChild, _arduinoManager);
 		}
 		
-		// AJOUT: Jouer le son de début (écran d'intro)
+		// Démarrer le son d'introduction
 		PlayStartSound();
 		
-		// Créer le générateur de labyrinthe
+		// Création du générateur de labyrinthe
 		var mazeGenerator = new VerticalMazeGenerator();
 		mazeGenerator.Name = "MazeGenerator";
 		AddChild(mazeGenerator);
 		_mazeGenerator = mazeGenerator;
 		
-		// Initialiser les éléments d'interface
+		// Initialisation des canvas pour l'interface
 		InitializeCanvasLayers();
 		
-		// Attendre pour s'assurer que tout est initialisé
+		// Instanciation différée du joueur
 		CallDeferred(nameof(SpawnPlayerBall));
 		
-		// Créer l'interface utilisateur
+		// Création de l'interface utilisateur
 		CallDeferred(nameof(CreateUI));
 		
-		// Configurer l'écran flou et message de calibrage initial
+		// Configuration de l'effet de flou
 		ConfigureBlurredBackground();
 		
-		// Charger les scores précédents
+		// Chargement des scores précédents
 		LoadHighScores();
-		// Ajouter le panneau de highscores
+		
+		// Création du panneau de high scores
 		CreateHighScorePanel();
 		
-		// ESSENTIEL: Vérifier la variable _isRestarting pour éviter l'écran de calibration
+		// Gestion du démarrage selon le contexte
 		if (_isRestarting)
 		{
-			// NOUVEAU: Démarrer directement le jeu après un game over
+			// Démarrage direct après un game over
 			CallDeferred(nameof(SkipCalibrationAndStart));
-			
-			// Réinitialiser le flag
 			_isRestarting = false;
-			
 			GD.Print("Redémarrage après Game Over - Calibration ignorée");
 		}
 		else if (!_isFirstStart)
 		{
-			// Passer directement à l'écran d'attente au redémarrage normal
+			// Écran d'attente au redémarrage normal
 			_gameState = GameState.WaitingToStart;
 			AddCenteredMessage("APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER", new Color(1, 1, 0), 36);
 		}
 		else
 		{
-			// Simuler le calibrage au premier démarrage du jeu
+			// Premier démarrage avec calibration
 			SimulateCalibration();
 			_isFirstStart = false;
 		}
@@ -177,25 +171,34 @@ public partial class MainScene : Node3D
 		GD.Print("MainScene initialisé");
 	}
 	
+	/**
+	 * Joue le son d'introduction/démarrage du jeu
+	 */
 	private void PlayStartSound()
 	{
 		if (AudioManager.Instance != null) {
-			AudioManager.Instance.PlaySound("GameStart");
-			GD.Print("Son de début joué");
+			// Arrêt de tous les sons en cours
+			AudioManager.Instance.StopAllSounds();
+			
+			// Démarrage de la musique d'intro
+			AudioManager.Instance.PlayLoopingSound("GameStart");
+			GD.Print("Son de début joué en boucle");
 		}
 	}
 
-
-	// Nouvelle méthode pour démarrer directement le jeu sans calibration
+	/**
+	 * Démarre le jeu immédiatement sans calibration
+	 * Utilisé lors des redémarrages
+	 */
 	private void SkipCalibrationAndStart()
 	{
-		// Attendre un court instant pour que tout soit correctement initialisé
+		// Court délai pour assurer l'initialisation complète
 		var timer = GetTree().CreateTimer(0.5f);
 		timer.Timeout += () => {
-			// Définir l'état de jeu actif
+			// Activation de l'état de jeu
 			_gameState = GameState.Playing;
 			
-			// Masquer les éléments d'interface
+			// Masquage des éléments d'interface d'attente
 			if (_centerMessageLabel != null)
 				_centerMessageLabel.Visible = false;
 			if (BlurredDisplay != null)
@@ -203,16 +206,16 @@ public partial class MainScene : Node3D
 			if (_blueOverlay != null)
 				_blueOverlay.Visible = false;
 			
-			// AJOUT: Réinitialiser l'état du bouton Arduino
+			// Réinitialisation de l'état du bouton
 			if (ArduinoManager.Instance != null)
 			{
 				ArduinoManager.Instance.ResetButtonState();
 			}
 			
-			// Activer les contrôles du joueur
+			// Activation des contrôles du joueur
 			if (_playerBall != null)
 			{
-				// S'assurer que le joueur est à la bonne position
+				// Positionnement au début du premier labyrinthe
 				var firstMaze = GetNodeOrNull<Node3D>("MazeGenerator/Maze_0");
 				if (firstMaze != null)
 				{
@@ -230,26 +233,28 @@ public partial class MainScene : Node3D
 				GD.Print("Contrôles activés après redémarrage");
 			}
 			
-			// Mettre à jour l'interface
+			// Mise à jour de l'interface
 			UpdateUI();
 		};
 	}
+
+	/**
+	 * Charge les meilleurs scores depuis le ScoreManager
+	 */
 	private void LoadHighScores()
 	{
 		try
 		{
-			// Utiliser GetNode avec sécurité (vérification null)
+			// Récupération du ScoreManager
 			var scoreManager = GetNode<ScoreManager>("/root/ScoreManager");
 			if (scoreManager != null)
 			{
-				// Récupérer les scores
 				_highScores = scoreManager.GetHighScores();
 				GD.Print("Scores chargés avec succès depuis ScoreManager");
 			}
 			else
 			{
 				GD.PrintErr("ScoreManager non trouvé dans l'arbre de scène");
-				// Utiliser une liste vide en cas d'échec
 				_highScores = new List<ScoreManager.ScoreEntry>();
 			}
 		}
@@ -260,9 +265,12 @@ public partial class MainScene : Node3D
 		}
 	}
 	
+	/**
+	 * Enregistre le score de la partie actuelle
+	 */
 	private void SaveScore()
 	{
-		// S'assurer que nous avons au moins un labyrinthe terminé
+		// Garantit au moins un labyrinthe complété
 		int mazesCompleted = Math.Max(1, _mazesCompleted);
 		int totalCats = CountTotalCats();
 		
@@ -270,22 +278,20 @@ public partial class MainScene : Node3D
 		
 		try
 		{
-			// Vérifier d'abord si ScoreManager existe
+			// Recherche du ScoreManager de différentes façons
 			var scoreManager = GetNode<ScoreManager>("/root/ScoreManager");
 			
-			// S'il n'existe pas, vérifier s'il est en tant que singleton
 			if (scoreManager == null)
 			{
 				scoreManager = ScoreManager.Instance;
 			}
 			
-			// S'il est toujours null, essayer de le trouver de manière plus générale
 			if (scoreManager == null)
 			{
 				scoreManager = GetTree().Root.FindChild("ScoreManager", true, false) as ScoreManager;
 			}
 			
-			// Si on a trouvé le ScoreManager, ajouter le score
+			// Ajout du score si le ScoreManager est trouvé
 			if (scoreManager != null)
 			{
 				scoreManager.AddScore(mazesCompleted, totalCats);
@@ -295,12 +301,12 @@ public partial class MainScene : Node3D
 			{
 				GD.PrintErr("ScoreManager non trouvé, création et ajout du ScoreManager");
 				
-				// Créer le ScoreManager s'il n'existe pas
+				// Création du ScoreManager si nécessaire
 				scoreManager = new ScoreManager();
 				scoreManager.Name = "ScoreManager";
 				GetTree().Root.AddChild(scoreManager);
 				
-				// Attendre un instant pour que le ScoreManager s'initialise
+				// Ajout différé pour initialisation
 				var timer = GetTree().CreateTimer(0.1f);
 				timer.Timeout += () => {
 					scoreManager.AddScore(mazesCompleted, totalCats);
@@ -313,28 +319,28 @@ public partial class MainScene : Node3D
 			GD.PrintErr($"Erreur lors de la sauvegarde du score: {e.Message}");
 		}
 		
-		// Mettre à jour l'affichage des scores
+		// Mise à jour de l'affichage des scores
 		UpdateHighScoreDisplay();
 	}
 
+	/**
+	 * Met à jour l'affichage du panneau des meilleurs scores
+	 */
 	private void UpdateHighScoreDisplay()
 	{
-		// Charger les scores à jour avec plusieurs tentatives
+		// Chargement des scores à jour
 		try
 		{
-			// Essayer d'obtenir le ScoreManager de différentes façons
+			// Tentatives multiples de récupération du ScoreManager
 			ScoreManager scoreManager = null;
 			
-			// Essayer d'abord via GetNode
 			scoreManager = GetNode<ScoreManager>("/root/ScoreManager");
 			
-			// Essayer via le singleton si non trouvé
 			if (scoreManager == null)
 			{
 				scoreManager = ScoreManager.Instance;
 			}
 			
-			// Essayer une recherche plus générale
 			if (scoreManager == null)
 			{
 				scoreManager = GetTree().Root.FindChild("ScoreManager", true, false) as ScoreManager;
@@ -342,14 +348,12 @@ public partial class MainScene : Node3D
 			
 			if (scoreManager != null)
 			{
-				// Récupérer les scores
 				_highScores = scoreManager.GetHighScores();
 				GD.Print("Scores chargés avec succès");
 			}
 			else
 			{
 				GD.PrintErr("ScoreManager non trouvé dans l'arbre de scène");
-				// Utiliser une liste vide en cas d'échec
 				_highScores = new List<ScoreManager.ScoreEntry>();
 			}
 		}
@@ -359,14 +363,14 @@ public partial class MainScene : Node3D
 			_highScores = new List<ScoreManager.ScoreEntry>();
 		}
 		
-		// Vérifier que le panneau de scores existe
+		// Vérification de l'existence du panneau
 		if (_highScorePanel == null)
 		{
 			GD.PrintErr("Le panneau de high scores n'existe pas!");
 			return;
 		}
 		
-		// Supprimer les anciens labels de score
+		// Nettoyage des scores existants
 		foreach (Node child in _highScorePanel.GetChildren())
 		{
 			if (child.Name.ToString().StartsWith("ScoreLabel"))
@@ -375,7 +379,7 @@ public partial class MainScene : Node3D
 			}
 		}
 		
-		// Créer les nouveaux labels de score - seulement les 5 premiers
+		// Affichage des 5 meilleurs scores
 		int maxScores = Math.Min(5, _highScores.Count);
 		var scoreSettings = new LabelSettings
 		{
@@ -395,7 +399,7 @@ public partial class MainScene : Node3D
 			_highScorePanel.AddChild(scoreLabel);
 		}
 		
-		// S'il n'y a pas de scores, afficher un message
+		// Message si aucun score n'est enregistré
 		if (_highScores.Count == 0)
 		{
 			Label noScoreLabel = new Label();
@@ -411,9 +415,12 @@ public partial class MainScene : Node3D
 		GD.Print($"Affichage des high scores mis à jour avec {_highScores.Count} scores");
 	}
 
+	/**
+	 * Initialise les couches de canvas pour l'organisation de l'interface
+	 */
 	private void InitializeCanvasLayers()
 	{
-		// Canvas pour l'UI du jeu (score, temps, etc.)
+		// Canvas pour l'UI principale
 		_uiCanvas = new CanvasLayer();
 		_uiCanvas.Name = "UICanvas";
 		_uiCanvas.Layer = 1;
@@ -438,9 +445,12 @@ public partial class MainScene : Node3D
 		AddChild(_scoreCanvas);
 	}
 	
+	/**
+	 * Configure l'effet de flou pour les transitions et pauses
+	 */
 	private void ConfigureBlurredBackground()
 	{
-		// 1. Créer d'abord l'overlay bleu
+		// Création de l'overlay coloré
 		_blueOverlay = new ColorRect();
 		_blueOverlay.Name = "BlueOverlay";
 		_blueOverlay.SetAnchorsPreset(Control.LayoutPreset.FullRect);
@@ -449,10 +459,9 @@ public partial class MainScene : Node3D
 		
 		if (Viewport3D != null && BlurShaderMaterial != null)
 		{
-			// 2. Ensuite, configurer le TextureRect avec le shader de flou
+			// Configuration du TextureRect avec le shader de flou
 			ViewportTexture viewportTexture = null;
 			
-			// Vérifier si BlurredDisplay existe déjà
 			if (BlurredDisplay == null)
 			{
 				viewportTexture = new ViewportTexture();
@@ -465,28 +474,28 @@ public partial class MainScene : Node3D
 			}
 			else
 			{
-				// Si BlurredDisplay existe, mettre à jour sa texture
 				viewportTexture = new ViewportTexture();
 				viewportTexture.ViewportPath = Viewport3D.GetPath();
 			}
 			
-			// Configurer le TextureRect
+			// Application de la texture et configuration
 			BlurredDisplay.Texture = viewportTexture;
 			BlurredDisplay.SetAnchorsPreset(Control.LayoutPreset.FullRect);
 			BlurredDisplay.MouseFilter = Control.MouseFilterEnum.Ignore;
 			
-			// S'assurer que le shader est bien configuré
+			// Configuration de l'intensité du flou
 			if (BlurShaderMaterial != null)
 			{
-				// Augmenter l'intensité du flou
 				BlurShaderMaterial.SetShaderParameter("blur_strength", 6.0f);
 			}
 		}
 	}
 	
+	/**
+	 * Crée et configure le panneau des meilleurs scores
+	 */
 	private void CreateHighScorePanel()
 	{
-		// Créer un panneau pour les high scores
 		_highScorePanel = new Panel();
 		_highScorePanel.Name = "HighScorePanel";
 		_highScorePanel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
@@ -511,17 +520,19 @@ public partial class MainScene : Node3D
 		titleLabel.LabelSettings = titleSettings;
 		_highScorePanel.AddChild(titleLabel);
 		
-		// Mettre à jour les scores affichés
+		// Mise à jour des scores
 		UpdateHighScoreDisplay();
 	}
 	
-	
+	/**
+	 * Simule le processus de calibration de l'Arduino
+	 */
 	private async void SimulateCalibration()
 	{
 		_gameState = GameState.Calibrating;
 		GD.Print("État: Calibrating");
 		
-		// Afficher le message de calibrage
+		// Message de calibration
 		AddCenteredMessage("Manette en cours de calibrage, veuillez patienter", Colors.White, 32);
 		
 		// Animation des points de chargement
@@ -540,7 +551,7 @@ public partial class MainScene : Node3D
 		_loadingDotsLabel.Position = new Vector2(0, 50);
 		_messageCanvas.AddChild(_loadingDotsLabel);
 		
-		// Animation des points
+		// Animation des points successifs
 		for (int i = 0; i < 5; i++)
 		{
 			_loadingDotsLabel.Text = ".";
@@ -551,29 +562,31 @@ public partial class MainScene : Node3D
 			await ToSignal(GetTree().CreateTimer(0.3), "timeout");
 		}
 		
-		// Passer à l'écran d'attente
+		// Transition vers l'écran d'attente
 		_gameState = GameState.WaitingToStart;
 		GD.Print("État: WaitingToStart");
 		
-		// Nettoyer l'écran et afficher le nouveau message
+		// Nettoyage et nouveau message
 		if (_loadingDotsLabel != null)
 			_loadingDotsLabel.QueueFree();
 		
-		// Afficher le message de démarrage
 		AddCenteredMessage("APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER", new Color(1, 1, 0), 36);
 	}
 	
+	/**
+	 * Ajoute un message centré avec style personnalisé
+	 */
 	private void AddCenteredMessage(string text, Color color, int fontSize = 32)
 	{
-		// Nettoyer l'ancien message s'il existe
+		// Nettoyage du message précédent
 		if (_centerMessageLabel != null)
 			_centerMessageLabel.QueueFree();
 		
-		// Créer un nouveau label
+		// Création du nouveau message
 		_centerMessageLabel = new Label();
 		_centerMessageLabel.Text = text;
 		
-		// Configurer l'apparence
+		// Configuration du style
 		var labelSettings = new LabelSettings {
 			Font = font,
 			FontSize = fontSize,
@@ -582,29 +595,30 @@ public partial class MainScene : Node3D
 		
 		_centerMessageLabel.LabelSettings = labelSettings;
 		
-		// Centrer le texte
+		// Centrage et positionnement
 		_centerMessageLabel.HorizontalAlignment = HorizontalAlignment.Center;
 		_centerMessageLabel.VerticalAlignment = VerticalAlignment.Center;
-		
-		// Configurer l'ancrage et la taille
 		_centerMessageLabel.SetAnchorsPreset(Control.LayoutPreset.Center);
 		_centerMessageLabel.Size = new Vector2(800, 100);
 		_centerMessageLabel.Position = new Vector2(-400, 0);
 		
-		// Ajouter au canvas des messages
+		// Ajout au canvas des messages
 		_messageCanvas.AddChild(_centerMessageLabel);
 	}
 	
+	/**
+	 * Crée les éléments d'interface utilisateur principaux
+	 */
 	private void CreateUI()
 	{
-		// Créer un panneau pour l'UI
+		// Panneau principal d'UI
 		_uiPanel = new Panel();
 		_uiPanel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
 		_uiPanel.Size = new Vector2(300, 220);
 		_uiPanel.Position = new Vector2(-300, 0);
 		_uiCanvas.AddChild(_uiPanel);
 		
-		// Ajouter une étiquette d'information
+		// Label d'informations générales
 		_infoLabel = new Label();
 		_infoLabel.Text = "Utilisez les flèches ou l'Arduino pour déplacer la balle";
 		_infoLabel.Position = new Vector2(10, 10);
@@ -612,53 +626,54 @@ public partial class MainScene : Node3D
 		_infoLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
 		_uiPanel.AddChild(_infoLabel);
 		
-		// Ajouter une étiquette pour le compteur de labyrinthe
+		// Compteur de labyrinthes
 		_mazeCountLabel = new Label();
 		_mazeCountLabel.Text = "Labyrinthe: 1 / ?";
 		_mazeCountLabel.Position = new Vector2(10, 50);
 		_mazeCountLabel.Size = new Vector2(280, 30);
 		_uiPanel.AddChild(_mazeCountLabel);
 		
-		// Ajouter une étiquette pour le temps
+		// Affichage du temps
 		_timeLabel = new Label();
 		_timeLabel.Text = "Temps: 60s";
 		_timeLabel.Position = new Vector2(10, 80);
 		_timeLabel.Size = new Vector2(280, 30);
-		_timeLabel.Modulate = new Color(1, 1, 1); // Blanc par défaut
+		_timeLabel.Modulate = new Color(1, 1, 1);
 		_uiPanel.AddChild(_timeLabel);
 		
-		// Ajouter une étiquette pour les effets des chats
+		// Affichage des effets de chats
 		_catEffectLabel = new Label();
 		_catEffectLabel.Text = "";
 		_catEffectLabel.Position = new Vector2(10, 110);
 		_catEffectLabel.Size = new Vector2(280, 30);
-		_catEffectLabel.Visible = false; // Caché par défaut
+		_catEffectLabel.Visible = false;
 		_uiPanel.AddChild(_catEffectLabel);
 		
-		// Ajouter une étiquette pour le score
+		// Affichage du score
 		_scoreLabel = new Label();
 		_scoreLabel.Text = "Chats: 0 | Score: 0";
 		_scoreLabel.Position = new Vector2(10, 150);
 		_scoreLabel.Size = new Vector2(280, 30);
 		_uiPanel.AddChild(_scoreLabel);
 		
-		// Mettre à jour les étiquettes
+		// Initialisation des valeurs
 		UpdateUI();
 	}
 
-	
+	/**
+	 * Mise à jour par frame - gestion des entrées et états
+	 */
 	public override void _Process(double delta)
 	{
-		// Mettre à jour le timer de cooldown du bouton
+		// Mise à jour du timer de cooldown pour le bouton
 		if (_buttonCooldownTimer > 0)
 		{
 			_buttonCooldownTimer -= (float)delta;
 		}
 		
-		// CRUCIAL: Vérification directe du bouton Arduino avec amélioration de la logique
+		// Détection d'appui sur le bouton Arduino
 		if (ArduinoManager.Instance != null && _buttonCooldownTimer <= 0)
 		{
-			// Stocker l'état actuel pour ne réagir qu'aux changements
 			bool buttonPressed = ArduinoManager.Instance.IsButtonJustPressed();
 			
 			if (buttonPressed)
@@ -667,12 +682,12 @@ public partial class MainScene : Node3D
 				HandleButtonPress();
 				_buttonCooldownTimer = BUTTON_COOLDOWN;
 				
-				// Forcer la réinitialisation complète de l'état du bouton après traitement
+				// Réinitialisation forcée de l'état du bouton
 				ArduinoManager.Instance.ForceResetButtonState();
 			}
 		}
 		
-		// AJOUT: Touche Espace pour simuler le bouton (pour les tests)
+		// Touche Espace comme alternative au bouton Arduino
 		if (Input.IsKeyPressed(Key.Space) && _buttonCooldownTimer <= 0)
 		{
 			GD.Print("ESPACE PRESSÉ - SIMULATION BOUTON");
@@ -680,21 +695,21 @@ public partial class MainScene : Node3D
 			_buttonCooldownTimer = BUTTON_COOLDOWN;
 		}
 		
-		// AJOUT: Touche F1 pour démarrer le jeu en cas d'urgence
+		// Touche F1 pour démarrage d'urgence
 		if (Input.IsKeyPressed(Key.F1) && _gameState == GameState.WaitingToStart)
 		{
 			GD.Print("TOUCHE F1 DÉTECTÉE - DÉMARRAGE FORCÉ DU JEU");
 			StartGame();
 		}
 		
-		// Ajouter un reset d'urgence avec la touche Echap ou Retour Arrière
+		// Reset d'urgence avec Echap ou Retour Arrière
 		if (Input.IsActionJustPressed("ui_cancel") || Input.IsKeyPressed(Key.Backspace))
 		{
 			EmergencyReset();
 			return;
 		}
 		
-		// OPTION DE SECOURS: Touche P pour la pause/reprise
+		// Touche P pour pause/reprise
 		if (Input.IsKeyPressed(Key.P) && _buttonCooldownTimer <= 0)
 		{
 			if (_gameState == GameState.Playing)
@@ -709,7 +724,7 @@ public partial class MainScene : Node3D
 			}
 		}
 		
-		// OPTION DE SECOURS: Touche R pour le redémarrage
+		// Touche R pour redémarrage dans les états de fin
 		if (Input.IsKeyPressed(Key.R) && (_gameState == GameState.GameOver || 
 										_gameState == GameState.GameOverFinal ||
 										_gameState == GameState.CameraTravel) && 
@@ -720,7 +735,7 @@ public partial class MainScene : Node3D
 			_buttonCooldownTimer = BUTTON_COOLDOWN;
 		}
 		
-		// Si le jeu n'est pas en cours, ne pas mettre à jour le temps
+		// Ne pas mettre à jour le temps en dehors de l'état de jeu
 		if (_gameState != GameState.Playing)
 		{
 			return;
@@ -730,80 +745,93 @@ public partial class MainScene : Node3D
 		_remainingTime -= (float)delta;
 		UpdateTimeLabel();
 		
-		// Vérifier si le temps est écoulé
+		// Vérification de fin de temps
 		if (_remainingTime <= 0)
 		{
 			_remainingTime = 0;
 			GameOver();
 		}
 		
-		// Vérifier le passage à un nouveau labyrinthe
+		// Vérification de changement de labyrinthe
 		CheckMazeTransition();
 	}
 	
-	
-	// Démarrer le jeu
+	/**
+	 * Démarre le jeu depuis l'écran d'attente
+	 */
 	private void StartGame()
 	{
 		_gameState = GameState.Playing;
 		
-		// AJOUT: Démarrer le son d'ambiance du jeu
+		// Démarrage du son d'ambiance
 		StartAmbianceSound();
 		
-		// Masquer le fond flou et l'overlay bleu
+		// Masquage des éléments d'interface d'attente
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = false;
 		if (_blueOverlay != null)
 			_blueOverlay.Visible = false;
 		
-		// Masquer le message central
 		if (_centerMessageLabel != null)
 			_centerMessageLabel.Visible = false;
 		
-		// Activer les contrôles du joueur
+		// Activation des contrôles du joueur
 		if (_playerBall != null)
 		{
 			_playerBall.EnableControls();
 		}
 		
-		// Mettre à jour l'interface
+		// Mise à jour de l'interface
 		UpdateUI();
 		
 		GD.Print("Jeu démarré - État: Playing");
 	}
-	// Nouvelle méthode pour démarrer le son d'ambiance
+
+	/**
+	 * Active le son d'ambiance du jeu
+	 */
 	private void StartAmbianceSound()
 	{
-		if (_ambianceSoundPlaying) return;
+		if (AudioManager.Instance == null) return;
 		
-		if (AudioManager.Instance != null) {
-			AudioManager.Instance.PlaySound("Ambiance");
-			_ambianceSoundPlaying = true;
-			GD.Print("Son d'ambiance démarré");
+		// Transition entre la musique précédente et l'ambiance
+		if (AudioManager.Instance.IsLoopingSoundPlaying("GameStart"))
+		{
+			AudioManager.Instance.TransitionToSound("Ambiance", "GameStart");
+		}
+		else if (AudioManager.Instance.IsLoopingSoundPlaying("PauseMusic"))
+		{
+			AudioManager.Instance.TransitionToSound("Ambiance", "PauseMusic");
+		}
+		else if (!AudioManager.Instance.IsLoopingSoundPlaying("Ambiance"))
+		{
+			AudioManager.Instance.PlayLoopingSound("Ambiance");
 		}
 		
-		// S'assurer que la musique de pause est arrêtée
-		StopPauseMusic();
+		_ambianceSoundPlaying = true;
+		GD.Print("Son d'ambiance démarré");
 	}
 
-
-	// Mettre le jeu en pause
+	/**
+	 * Met le jeu en pause
+	 */
 	private void PauseGame()
 	{
 		_gameState = GameState.Paused;
 		
-		// Sauvegarder le temps actuel
+		// Sauvegarde du temps actuel
 		_savedTime = _remainingTime;
 		
-		// Désactiver les contrôles du joueur
+		// Désactivation des contrôles du joueur
 		if (_playerBall != null)
 		{
 			_playerBall.DisableControls();
 		}
-		// AJOUT: Démarrer la musique de pause
+		
+		// Démarrage de la musique de pause
 		StartPauseMusic();
-
-		// Afficher l'overlay bleu et le fond flou
+		
+		// Affichage de l'interface de pause
 		if (_blueOverlay != null)
 		{
 			_blueOverlay.Visible = true;
@@ -812,44 +840,57 @@ public partial class MainScene : Node3D
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = true;
 		
-		// Afficher le message de pause
+		// Message de pause
 		AddCenteredMessage("Pause en cours...", new Color(0, 1, 1), 36); // Cyan
 		
 		GD.Print("Jeu en pause - État: Paused");
 	}
-	
+
+	/**
+	 * Active la musique de pause
+	 */
 	private void StartPauseMusic()
 	{
-		if (_pauseMusicPlaying) return;
+		if (AudioManager.Instance == null) return;
 		
-		if (AudioManager.Instance != null) {
-			AudioManager.Instance.PlaySound("PauseMusic");
-			_pauseMusicPlaying = true;
-			GD.Print("Musique de pause démarrée");
+		// Transition entre l'ambiance et la musique de pause
+		if (AudioManager.Instance.IsLoopingSoundPlaying("Ambiance"))
+		{
+			AudioManager.Instance.TransitionToSound("PauseMusic", "Ambiance");
 		}
+		else if (!AudioManager.Instance.IsLoopingSoundPlaying("PauseMusic"))
+		{
+			AudioManager.Instance.PlayLoopingSound("PauseMusic");
+		}
+		
+		_pauseMusicPlaying = true;
+		GD.Print("Musique de pause démarrée");
 	}
 
-
-	// Reprendre le jeu
+	/**
+	 * Reprend le jeu après une pause
+	 */
 	private void ResumeGame()
 	{
 		_gameState = GameState.Playing;
 		
-		// Restaurer le temps
+		// Restauration du temps
 		_remainingTime = _savedTime;
+		
+		// Transition audio
 		StopPauseMusic();
 		StartAmbianceSound();
-		// Masquer le fond flou et l'overlay bleu
+		
+		// Masquage des éléments d'interface de pause
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = false;
 		if (_blueOverlay != null)
 			_blueOverlay.Visible = false;
 		
-		// Masquer le message central
 		if (_centerMessageLabel != null)
 			_centerMessageLabel.Visible = false;
 		
-		// Activer les contrôles du joueur
+		// Réactivation des contrôles du joueur
 		if (_playerBall != null)
 		{
 			_playerBall.EnableControls();
@@ -857,30 +898,34 @@ public partial class MainScene : Node3D
 		
 		GD.Print("Jeu repris - État: Playing");
 	}
-	
-	// Nouvelle méthode pour arrêter la musique de pause
+
+	/**
+	 * Arrête la musique de pause
+	 */
 	private void StopPauseMusic()
 	{
-		if (!_pauseMusicPlaying) return;
+		if (AudioManager.Instance == null) return;
 		
-		// Arrêter la musique de pause (dépend de l'implémentation FMOD)
-		_pauseMusicPlaying = false;
-		GD.Print("Musique de pause arrêtée");
-		
-		// Reprendre le son d'ambiance si nécessaire
+		if (AudioManager.Instance.IsLoopingSoundPlaying("PauseMusic"))
+		{
+			AudioManager.Instance.StopLoopingSound("PauseMusic");
+			_pauseMusicPlaying = false;
+			GD.Print("Musique de pause arrêtée");
+		}
 	}
 
-	// Mise à jour générale de l'interface utilisateur
+	/**
+	 * Met à jour les éléments d'interface
+	 */
 	private void UpdateUI()
 	{
-		// Mettre à jour le label de temps
 		UpdateTimeLabel();
-		
-		// Mettre à jour le label de score
 		UpdateScoreLabel();
 	}
 	
-	// Mettre à jour le label de score
+	/**
+	 * Met à jour l'affichage du score
+	 */
 	private void UpdateScoreLabel()
 	{
 		if (_scoreLabel == null) return;
@@ -894,7 +939,9 @@ public partial class MainScene : Node3D
 		_scoreLabel.Text = $"Labyrinthes: {_mazesCompleted} | Chats: {totalCats}";
 	}
 	
-	// Mise à jour de l'affichage du temps
+	/**
+	 * Met à jour l'affichage du temps avec indicateur coloré
+	 */
 	private void UpdateTimeLabel()
 	{
 		if (_timeLabel == null) return;
@@ -902,40 +949,43 @@ public partial class MainScene : Node3D
 		int seconds = (int)_remainingTime;
 		_timeLabel.Text = $"Temps: {seconds}s";
 		
-		// Changer la couleur si le temps est presque écoulé
+		// Couleur selon le temps restant
 		if (_remainingTime < 10)
 		{
-			_timeLabel.Modulate = new Color(1, 0, 0); // Rouge
+			_timeLabel.Modulate = new Color(1, 0, 0); // Rouge pour très peu de temps
 		}
 		else if (_remainingTime < 20)
 		{
-			_timeLabel.Modulate = new Color(1, 0.5f, 0); // Orange
+			_timeLabel.Modulate = new Color(1, 0.5f, 0); // Orange pour temps critique
 		}
 		else
 		{
-			_timeLabel.Modulate = new Color(1, 1, 1); // Blanc
+			_timeLabel.Modulate = new Color(1, 1, 1); // Blanc pour temps normal
 		}
 	}
 	
-	// Méthode appelée par les chats ou la téléportation pour ajouter du temps
+	/**
+	 * Ajoute du temps au compteur (bonus/malus des chats)
+	 */
 	public void AddTime(float seconds)
 	{
 		if (_gameState != GameState.Playing) return;
 		
 		_remainingTime += seconds;
 		
-		// Afficher un message d'effet temporaire
+		// Affichage de l'effet
 		ShowCatEffect(seconds);
 		
 		GD.Print($"Temps ajouté: {seconds} secondes. Temps restant: {_remainingTime}");
 	}
 	
-	// Méthode appelée quand un chat est collecté
+	/**
+	 * Incrémente le compteur de chats collectés par type
+	 */
 	public void AddCatCollected(int catType)
 	{
 		if (_gameState != GameState.Playing) return;
 		
-		// S'assurer que le type est valide
 		if (catType >= 0 && catType < 5)
 		{
 			CatType type = (CatType)catType;
@@ -948,12 +998,13 @@ public partial class MainScene : Node3D
 				_catsCollected[type] = 1;
 			}
 			
-			// Mettre à jour l'affichage du score
 			UpdateScoreLabel();
 		}
 	}
 	
-	// Afficher un effet temporaire pour l'effet d'un chat
+	/**
+	 * Affiche temporairement l'effet d'un chat
+	 */
 	private void ShowCatEffect(float seconds)
 	{
 		if (_catEffectLabel == null) return;
@@ -976,10 +1027,10 @@ public partial class MainScene : Node3D
 		_catEffectLabel.Modulate = effectColor;
 		_catEffectLabel.Visible = true;
 		
-		// Créer un timer pour masquer le message après un délai
-		var timer = new Godot.Timer();
+		// Timer pour masquer le message après un délai
+		var timer = new Timer();
 		AddChild(timer);
-		timer.WaitTime = 2.0f; // 2 secondes
+		timer.WaitTime = 2.0f;
 		timer.OneShot = true;
 		timer.Timeout += () => {
 			_catEffectLabel.Visible = false;
@@ -988,23 +1039,24 @@ public partial class MainScene : Node3D
 		timer.Start();
 	}
 	
-	// Démarrer le travelling de caméra pour montrer tous les labyrinthes
+	/**
+	 * Lance le travelling de caméra pour montrer tous les labyrinthes complétés
+	 */
 	private void StartCameraTraveling()
 	{
 		_gameState = GameState.CameraTravel;
 		GD.Print("État: CameraTravel - Démarrage du travelling de caméra");
 		
-		// Masquer temporairement le message
+		// Masquage temporaire des interfaces
 		if (_centerMessageLabel != null)
 			_centerMessageLabel.Visible = false;
 		
-		// Masquer temporairement le fond flou et l'overlay
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = false;
 		if (_blueOverlay != null)
 			_blueOverlay.Visible = false;
 		
-		// Créer un texte pour afficher les statistiques
+		// Affichage des statistiques
 		var statsLabel = new Label();
 		statsLabel.Text = $"Labyrinthes complétés: {_mazesCompleted}\nChats collectés: {CountTotalCats()}";
 		
@@ -1021,13 +1073,11 @@ public partial class MainScene : Node3D
 		statsLabel.Position = new Vector2(0, 50);
 		_messageCanvas.AddChild(statsLabel);
 		
-		// CORRECTION: Créer ou récupérer la caméra globale si elle n'existe pas déjà
+		// Création ou récupération de la caméra globale
 		if (_globalCamera == null)
 		{
-			// Vérifier d'abord si elle existe déjà dans l'arbre
 			_globalCamera = GetNodeOrNull<Camera3D>("GlobalCamera");
 			
-			// Sinon, la créer
 			if (_globalCamera == null)
 			{
 				_globalCamera = new Camera3D();
@@ -1037,40 +1087,39 @@ public partial class MainScene : Node3D
 			}
 		}
 		
-		// Lancer le mouvement de caméra
+		// Lancement du travelling
 		if (_globalCamera != null)
 		{
-			// Activer la caméra globale
 			_globalCamera.Current = true;
-			
-			// Démarrer le travelling
 			StartCameraTravelingAnimation(_globalCamera, statsLabel);
 		}
 		else
 		{
-			// Si la caméra n'est pas disponible, passer directement à l'écran de game over
+			// Si la caméra n'est pas disponible, passer directement à l'écran final
 			ShowFinalGameOver(statsLabel);
 		}
 	}
 
-	// Animation du travelling de caméra
+	/**
+	 * Anime le déplacement de la caméra pour le travelling
+	 */
 	private void StartCameraTravelingAnimation(Camera3D camera, Label statsLabel)
 	{
 		if (_mazeGenerator == null) return;
 		
-		// Annuler tout tween existant
+		// Annulation des tweens existants
 		if (_cameraTween != null && _cameraTween.IsValid())
 		{
 			_cameraTween.Kill();
 		}
 		
-		// CORRECTION: Utiliser le dernier labyrinthe réellement complété, pas juste l'index courant
+		// Calcul du dernier labyrinthe complété
 		int lastMazeIndex = Math.Max(_currentMazeIndex, _mazesCompleted - 1);
 		if (lastMazeIndex < 0) lastMazeIndex = 0;
 		
 		GD.Print($"Démarrage du travelling de la caméra pour montrer les labyrinthes 0 à {lastMazeIndex}");
 		
-		// Trouver les nœuds des labyrinthes
+		// Récupération des noeuds des labyrinthes
 		Node3D lastMaze = GetNodeOrNull<Node3D>($"MazeGenerator/Maze_{lastMazeIndex}");
 		Node3D firstMaze = GetNodeOrNull<Node3D>("MazeGenerator/Maze_0");
 		
@@ -1081,11 +1130,11 @@ public partial class MainScene : Node3D
 			return;
 		}
 		
-		// Obtenir les tailles des labyrinthes
+		// Récupération des tailles
 		int lastMazeSize = _mazeGenerator.GetMazeSize(lastMazeIndex);
 		int firstMazeSize = _mazeGenerator.GetMazeSize(0);
 		
-		// Calculer les centres des labyrinthes
+		// Calcul des centres
 		Vector3 lastMazeCenter = lastMaze.GlobalPosition + new Vector3(
 			(lastMazeSize * _mazeGenerator._cellSize) / 2,
 			0,
@@ -1098,21 +1147,21 @@ public partial class MainScene : Node3D
 			(firstMazeSize * _mazeGenerator._cellSize) / 2
 		);
 		
-		// Calculer une hauteur suffisante pour voir tous les labyrinthes
+		// Calcul de la hauteur optimale pour voir tous les labyrinthes
 		float totalSpan = (lastMaze.GlobalPosition.X + lastMazeSize * _mazeGenerator._cellSize) - firstMaze.GlobalPosition.X;
 		float maxSize = Math.Max(lastMazeSize, firstMazeSize);
 		float cameraHeight = Math.Max(totalSpan * 0.5f, maxSize * _mazeGenerator._cellSize * 0.8f);
 		
 		GD.Print($"Distance totale des labyrinthes: {totalSpan}, hauteur de caméra: {cameraHeight}");
 		
-		// Position de départ de la caméra (au-dessus du dernier labyrinthe)
+		// Position initiale de la caméra
 		Vector3 startPosition = lastMazeCenter + new Vector3(0, cameraHeight * 0.5f, 0);
 		camera.GlobalPosition = startPosition;
 		
-		// S'assurer que la caméra regarde vers le bas avec un angle pour éviter les vecteurs colinéaires
+		// Orientation vers le dernier labyrinthe
 		camera.LookAt(lastMazeCenter + new Vector3(0.01f, 0, 0.01f), Vector3.Up);
 		
-		// Position finale (vue d'ensemble)
+		// Position finale avec vue d'ensemble
 		Vector3 midPoint = new Vector3(
 			(firstMazeCenter.X + lastMazeCenter.X) / 2,
 			0,
@@ -1121,67 +1170,65 @@ public partial class MainScene : Node3D
 		
 		Vector3 endPosition = midPoint + new Vector3(0, cameraHeight, totalSpan * 0.15f);
 		
-		// CORRECTION: Ajuster la position finale pour garantir que tous les labyrinthes sont visibles
+		// Ajustement selon le nombre de labyrinthes
 		float adjustedHeight = cameraHeight;
 		if (_mazesCompleted > 2)
 		{
-			// Augmenter la hauteur proportionnellement au nombre de labyrinthes
 			adjustedHeight = cameraHeight * (1.0f + (_mazesCompleted * 0.1f));
 			endPosition.Y = adjustedHeight;
-			
-			// Ajuster aussi le recul de la caméra
 			endPosition.Z = totalSpan * (0.15f + (_mazesCompleted * 0.02f));
 		}
 		
 		GD.Print($"Position de départ: {startPosition}, Position finale: {endPosition}");
 		
-		// Créer un nouveau tween
+		// Configuration du tween d'animation
 		_cameraTween = CreateTween();
 		_cameraTween.SetEase(Tween.EaseType.InOut);
 		_cameraTween.SetTrans(Tween.TransitionType.Cubic);
 		
-		// Animation de la position (prolongée à 7 secondes pour mieux apprécier)
+		// Animation de la position
 		_cameraTween.TweenProperty(camera, "global_position", endPosition, 7.0f);
 		
-		// Faire pivoter la caméra pendant le mouvement pour garder la vue sur les labyrinthes
+		// Animation de l'orientation durant le mouvement
 		_cameraTween.Parallel().TweenMethod(
 			Callable.From((float t) => {
-				// Ajouter un petit décalage pour éviter les vecteurs colinéaires
 				Vector3 lookAtPos = lastMazeCenter.Lerp(midPoint, t) + new Vector3(0.01f, 0, 0.01f);
 				camera.LookAt(lookAtPos, Vector3.Up);
 			}),
 			0.0f, 1.0f, 7.0f
 		);
 		
-		// À la fin de l'animation, montrer le message final
+		// Callback de fin d'animation
 		_cameraTween.TweenCallback(Callable.From(() => {
 			ShowFinalGameOver(statsLabel);
 		}));
 	}
 	
-	// Afficher le message final après le travelling de caméra
+	/**
+	 * Affiche l'écran de game over final après le travelling
+	 */
 	private void ShowFinalGameOver(Label statsLabel)
 	{
 		_gameState = GameState.GameOverFinal;
 		GD.Print("État: GameOverFinal");
 		
-		// Supprimer le label de statistiques
+		// Suppression du label de statistiques
 		if (statsLabel != null)
 			statsLabel.QueueFree();
 		
-		// Désactiver la caméra globale
+		// Désactivation de la caméra globale
 		if (_globalCamera != null)
 		{
 			_globalCamera.Current = false;
 		}
 		
-		// Activer la caméra du joueur
+		// Réactivation de la caméra du joueur
 		if (_playerBall != null && _playerBall.FindChild("Camera3D") is Camera3D playerCamera)
 		{
 			playerCamera.Current = true;
 		}
 		
-		// Réafficher le fond flou et l'overlay rouge
+		// Affichage de l'interface de fin
 		if (_blueOverlay != null)
 		{
 			_blueOverlay.Visible = true;
@@ -1190,15 +1237,17 @@ public partial class MainScene : Node3D
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = true;
 		
-		// Afficher le message final avec les statistiques
+		// Message de fin avec statistiques
 		AddCenteredMessage(
 			$"VOUS N'AVEZ PLUS DE LAINE...\n\nLabyrinthes: {_mazesCompleted} | Chats: {CountTotalCats()}\n\nAPPUYEZ SUR LE BOUTON POUR RECOMMENCER", 
-			new Color(1, 1, 1), // Blanc pour une meilleure visibilité
+			new Color(1, 1, 1),
 			24
 		);
 	}
 	
-	// Compter le total des chats collectés
+	/**
+	 * Retourne le nombre total de chats collectés
+	 */
 	private int CountTotalCats()
 	{
 		int total = 0;
@@ -1209,36 +1258,42 @@ public partial class MainScene : Node3D
 		return total;
 	}
 	
-	// Jouer un son de game over
+	/**
+	 * Joue le son de game over
+	 */
 	private void PlayGameOverSound()
 	{
 		if (AudioManager.Instance != null) {
-			AudioManager.Instance.PlaySound("GameOver");
-			GD.Print("Son GameOver joué");
+			// Arrêt de l'ambiance
+			if (_ambianceSoundPlaying)
+			{
+				AudioManager.Instance.StopLoopingSound("Ambiance");
+				_ambianceSoundPlaying = false;
+			}
+			
+			// Démarrage du son de game over
+			AudioManager.Instance.PlayLoopingSound("GameOver");
+			GD.Print("Son GameOver joué en boucle");
 		}
 	}
 
-
-
-	
+	/**
+	 * Vérifie si le joueur a changé de labyrinthe
+	 */
 	private void CheckMazeTransition()
 	{
-		// Si le joueur n'existe pas encore, ne rien faire
 		if (_playerBall == null) return;
 		
-		// Détecter dans quel labyrinthe se trouve le joueur
+		// Détection du labyrinthe actuel
 		int newMazeIndex = GetPlayerCurrentMaze();
 		
-		// Si le joueur a changé de labyrinthe
+		// Si changement de labyrinthe
 		if (newMazeIndex != _currentMazeIndex && newMazeIndex >= 0)
 		{
-			// Si le joueur avance (et ne recule pas)
+			// Incrémentation uniquement si avance (pas recul)
 			if (newMazeIndex > _currentMazeIndex)
 			{
-				// Incrémenter le nombre de labyrinthes complétés
-				// Auparavant : _mazesCompleted = newMazeIndex;
-				_mazesCompleted += 1; // Incrémente de 1 à chaque nouveau labyrinthe traversé
-				
+				_mazesCompleted += 1;
 				UpdateScoreLabel();
 				GD.Print($"Transition vers le labyrinthe {newMazeIndex}, total complétés: {_mazesCompleted}");
 			}
@@ -1248,15 +1303,17 @@ public partial class MainScene : Node3D
 		}
 	}
 	
+	/**
+	 * Détermine dans quel labyrinthe se trouve le joueur
+	 */
 	private int GetPlayerCurrentMaze()
 	{
-		// Trouver dans quel labyrinthe se trouve le joueur
 		for (int i = 0; i < _mazeGenerator.GetTotalMazeCount(); i++)
 		{
 			Node3D maze = GetNodeOrNull<Node3D>($"MazeGenerator/Maze_{i}");
 			if (maze != null)
 			{
-				// Vérifier si le joueur est dans les limites X du labyrinthe
+				// Vérification des limites X du labyrinthe
 				float mazeMinX = maze.GlobalPosition.X;
 				int size = _mazeGenerator.GetMazeSize(i);
 				float mazeMaxX = mazeMinX + (size * _mazeGenerator._cellSize);
@@ -1271,25 +1328,29 @@ public partial class MainScene : Node3D
 		return -1; // Joueur hors des labyrinthes
 	}
 	
+	/**
+	 * Met à jour l'affichage du compteur de labyrinthes
+	 */
 	private void UpdateMazeCounter(int mazeIndex)
 	{
 		if (_mazeCountLabel != null)
 		{
-			// Afficher "infini" pour le nombre total de labyrinthes
+			// Affichage avec symbole infini pour le total
 			_mazeCountLabel.Text = $"Labyrinthe: {mazeIndex + 1} / ∞";
 		}
 	}
 	
-	// Modifier la méthode HandleButtonPress pour être plus robuste
+	/**
+	 * Gère l'appui sur le bouton Arduino
+	 */
 	private void HandleButtonPress()
 	{
-		// Afficher un message de débogage TRÈS VISIBLE
 		GD.Print("!!! BOUTON DÉTECTÉ !!! État du jeu: " + _gameState);
 		
 		switch (_gameState)
 		{
 			case GameState.Calibrating:
-				// Ignorer pendant le calibrage
+				// Ignorer pendant la calibration
 				GD.Print("Bouton ignoré pendant le calibrage");
 				break;
 				
@@ -1300,7 +1361,7 @@ public partial class MainScene : Node3D
 				break;
 				
 			case GameState.Playing:
-				// Mettre le jeu en pause
+				// Mettre en pause
 				GD.Print("Mise en pause du jeu...");
 				PauseGame();
 				break;
@@ -1318,9 +1379,9 @@ public partial class MainScene : Node3D
 			case GameState.CameraTravel:
 				// Redémarrer le jeu
 				GD.Print("Redémarrage du jeu...");
-				// Définir _isRestarting à true pour sauter l'écran de calibrage
 				_isRestarting = true;
-				// NOUVEAU: Réinitialiser l'état du bouton avant de redémarrer
+				
+				// Réinitialisation de l'état du bouton
 				if (ArduinoManager.Instance != null)
 				{
 					ArduinoManager.Instance.ResetButtonState();
@@ -1329,65 +1390,63 @@ public partial class MainScene : Node3D
 				break;
 		}
 		
-		// Réinitialiser l'état du bouton explicitement
+		// Réinitialisation explicite de l'état du bouton
 		if (ArduinoManager.Instance != null)
 		{
 			ArduinoManager.Instance.ForceResetButtonState();
 		}
 	}
 	
+	/**
+	 * Réinitialisation d'urgence du jeu
+	 */
 	private void EmergencyReset()
 	{
 		GD.Print("RESET D'URGENCE ACTIVÉ!");
 		
-		// Forcer une réinitialisation complète
+		// Réinitialisation de l'état du bouton
 		if (ArduinoManager.Instance != null)
 		{
 			ArduinoManager.Instance.ResetButtonState();
 		}
 		
-		// Définir _isRestarting à true
+		// Flag pour éviter la calibration au redémarrage
 		_isRestarting = true;
 		
-		// Recharger la scène immédiatement
+		// Rechargement immédiat de la scène
 		GetTree().ReloadCurrentScene();
 	}
 	
-	
+	/**
+	 * Redémarre le jeu proprement
+	 */
 	private void RestartGame()
 	{
 		GD.Print("Démarrage du processus de redémarrage du jeu...");
 		
-		// Désactiver les contrôles du joueur immédiatement
+		// Désactivation des contrôles joueur
 		if (_playerBall != null)
 		{
 			_playerBall.DisableControls();
 		}
 		
-		// Définir le flag de redémarrage pour éviter l'écran de calibration au prochain chargement
+		// Flag pour éviter la calibration
 		_isRestarting = true;
 		
-		// NOUVEAU: Réinitialiser l'état du bouton avant de redémarrer
+		// Arrêt de tous les sons
+		StopAllSounds();
+		
+		// Réinitialisation de l'état du bouton
 		if (ArduinoManager.Instance != null)
 		{
 			ArduinoManager.Instance.ResetButtonState();
 		}
 		
-		// IMPORTANT: NE PAS FERMER LE PORT ARDUINO
-		// Supprimer ces lignes:
-		// if (ArduinoManager.Instance != null)
-		// {
-		//     ArduinoManager.Instance.ForceClosePort();
-		//     ArduinoManager.ResetPortState();
-		//     GD.Print("Port Arduino correctement fermé avant rechargement");
-		// }
-		
-		// Au lieu de tous les bricolages compliqués, on recharge simplement la scène complète
-		// Mais avec un délai plus court pour être plus réactif
+		// Rechargement différé de la scène
 		var timer = GetTree().CreateTimer(0.3f);
 		timer.Timeout += () => 
 		{
-			// NOUVEAU: Ceci est très important - on force la libération du bouton
+			// Réinitialisation forcée de l'état du bouton
 			if (ArduinoManager.Instance != null)
 			{
 				ArduinoManager.Instance._buttonPressed = false;
@@ -1396,34 +1455,36 @@ public partial class MainScene : Node3D
 				ArduinoManager.Instance._buttonEventProcessed = true;
 			}
 			
-			// Recharger la scène entière
+			// Rechargement de la scène
 			GetTree().ReloadCurrentScene();
 		};
 	}
 
-	// Modifier ReinitializeGame pour s'assurer que le nouvel ArduinoManager est utilisé
+	/**
+	 * Réinitialise le jeu sans recharger la scène
+	 */
 	private void ReinitializeGame()
 	{
 		GD.Print("Réinitialisation du jeu sans rechargement de scène...");
 		
-		// Recréer le générateur de labyrinthe
+		// Recréation du générateur de labyrinthe
 		var mazeGenerator = new VerticalMazeGenerator();
 		mazeGenerator.Name = "MazeGenerator";
 		AddChild(mazeGenerator);
 		_mazeGenerator = mazeGenerator;
 		
-		// Attendre que les labyrinthes soient générés
+		// Attente pour la génération des labyrinthes
 		var timer = GetTree().CreateTimer(1.0f);
 		timer.Timeout += () => {
-			// Instancier le joueur
+			// Réinstanciation du joueur
 			SpawnPlayerBall();
 			
-			// Passer directement à l'état Playing si on est en mode redémarrage
+			// État de jeu selon le contexte
 			if (_isRestarting)
 			{
 				_gameState = GameState.Playing;
 				
-				// Masquer l'interface
+				// Masquage des interfaces
 				if (_centerMessageLabel != null)
 					_centerMessageLabel.Visible = false;
 				if (BlurredDisplay != null)
@@ -1431,13 +1492,11 @@ public partial class MainScene : Node3D
 				if (_blueOverlay != null)
 					_blueOverlay.Visible = false;
 					
-				// CRITIQUE: Forcer explicitement le passage de l'ArduinoManager au PlayerBall
-				// après un délai pour s'assurer que tout est initialisé
+				// Connexion forcée à l'ArduinoManager
 				var controlsTimer = GetTree().CreateTimer(0.5f);
 				controlsTimer.Timeout += () => {
 					if (_playerBall != null && _arduinoManager != null)
 					{
-						// Forcer la connexion
 						_playerBall.SetArduinoManager(_arduinoManager);
 						_playerBall.EnableControls();
 						GD.Print("CRITIQUE: Connexion forcée au nouvel ArduinoManager!");
@@ -1454,22 +1513,24 @@ public partial class MainScene : Node3D
 		};
 	}
 
-	// Dans SpawnPlayerBall() - Mise à jour pour garantir la connexion avec l'ArduinoManager
+	/**
+	 * Crée le joueur et le place dans le labyrinthe
+	 */
 	private void SpawnPlayerBall()
 	{
 		GD.Print("Tentative de spawn du joueur...");
 		
-		// Vérifier que la scène du joueur est correctement référencée
+		// Vérification de la référence à la scène
 		if (_playerBallScene == null)
 		{
 			GD.PrintErr("Erreur: PlayerBallScene n'est pas définie dans l'inspecteur!");
 			return;
 		}
 		
-		// Instancier le joueur
+		// Instanciation du joueur
 		_playerBall = _playerBallScene.Instantiate<PlayerBall>();
 		
-		// IMPORTANT: S'assurer que _arduinoManager est valide
+		// Récupération ou création de l'ArduinoManager
 		if (_arduinoManager == null)
 		{
 			_arduinoManager = ArduinoManager.Instance;
@@ -1486,14 +1547,14 @@ public partial class MainScene : Node3D
 			}
 		}
 		
-		// Assigner la référence de l'ArduinoManager au PlayerBall avant de l'ajouter
+		// Assignation de l'ArduinoManager au joueur
 		_playerBall.SetArduinoManager(_arduinoManager);
 		GD.Print($"ArduinoManager assigné au PlayerBall: {_arduinoManager != null}");
 		
 		AddChild(_playerBall);
 		GD.Print("PlayerBall instancié avec succès");
 		
-		// Trouver le premier labyrinthe
+		// Recherche du premier labyrinthe
 		var firstMaze = GetNodeOrNull<Node3D>("MazeGenerator/Maze_0");
 		if (firstMaze == null && _mazeGenerator != null)
 		{
@@ -1507,31 +1568,32 @@ public partial class MainScene : Node3D
 		}
 		else
 		{
-			// Obtenir la position d'entrée du premier labyrinthe
+			// Positionnement à l'entrée du premier labyrinthe
 			int size = _mazeGenerator.GetMazeSize(0);
 			Vector2I entrancePos = _mazeGenerator.GetEntrancePosition(size, 0);
 			
-			// Positionner le joueur à l'entrée du premier labyrinthe
 			_playerBall.GlobalPosition = firstMaze.GlobalPosition + new Vector3(
 				entrancePos.X * _mazeGenerator._cellSize,
-				1.0f, // Un peu au-dessus du sol
+				1.0f,
 				entrancePos.Y * _mazeGenerator._cellSize
 			);
 			
 			GD.Print("Joueur placé à la position: " + _playerBall.GlobalPosition);
 		}
 		
-		// Au début, désactiver les contrôles du joueur
+		// Désactivation initiale des contrôles
 		if (_playerBall != null)
 		{
 			_playerBall.DisableControls();
 		}
 	}
 
-
-	// Remplacer la méthode GameOver pour appeler SaveScore avant le travelling de caméra
+	/**
+	 * Gère la fin de partie (temps écoulé)
+	 */
 	private void GameOver()
 	{
+		// Éviter les appels multiples
 		if (_gameState == GameState.GameOver || 
 			_gameState == GameState.ShowingAllMazes || 
 			_gameState == GameState.GameOverFinal ||
@@ -1540,18 +1602,20 @@ public partial class MainScene : Node3D
 		_gameState = GameState.GameOver;
 		_timeOver = true;
 		
-		// Désactiver les contrôles du joueur
+		// Désactivation des contrôles du joueur
 		if (_playerBall != null)
 		{
 			_playerBall.DisableControls();
 		}
-		// AJOUT: Arrêter le son d'ambiance
+		
+		// Son de game over
 		StopAllSounds();
-
-		// Sauvegarder le score
+		PlayGameOverSound();
+		
+		// Sauvegarde du score
 		SaveScore();
 		
-		// Afficher le fond flou et le message de fin avec un overlay rouge
+		// Affichage de l'interface de fin
 		if (_blueOverlay != null)
 		{
 			_blueOverlay.Visible = true;
@@ -1560,13 +1624,10 @@ public partial class MainScene : Node3D
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = true;
 		
-		AddCenteredMessage("VOUS N'AVEZ PLUS DE LAINE...", new Color(1, 1, 1), 36); // Blanc pour meilleure visibilité
+		AddCenteredMessage("VOUS N'AVEZ PLUS DE LAINE...", new Color(1, 1, 1), 36);
 		
-		// Jouer un son de game over
-		PlayGameOverSound();
-		
-		// Démarrer le traveling de caméra après un court délai
-		var timer = new Godot.Timer();
+		// Lancement différé du travelling de caméra
+		var timer = new Timer();
 		timer.WaitTime = 1.0f;
 		timer.OneShot = true;
 		timer.Timeout += () => StartCameraTraveling();
@@ -1575,16 +1636,17 @@ public partial class MainScene : Node3D
 		
 		GD.Print("Game Over - Plus de temps! État: GameOver");
 	}
-	
+
+	/**
+	 * Arrête tous les sons du jeu
+	 */
 	private void StopAllSounds()
 	{
-		// Arrêter le son d'ambiance
+		// Mise à jour des flags d'état
 		_ambianceSoundPlaying = false;
-		
-		// Arrêter la musique de pause
 		_pauseMusicPlaying = false;
 		
-		// Arrêter tous les sons
+		// Arrêt global des sons
 		if (AudioManager.Instance != null) {
 			AudioManager.Instance.StopAllSounds();
 		}
@@ -1592,59 +1654,64 @@ public partial class MainScene : Node3D
 		GD.Print("Tous les sons arrêtés");
 	}
 
+	/**
+	 * Démarre le jeu après un redémarrage
+	 */
 	private void StartGameAfterRestart()
 	{
-		// Définir l'état du jeu
+		// Configuration de l'état
 		_gameState = GameState.Playing;
 		
-		// Masquer le fond flou et l'overlay
+		// Masquage des interfaces
 		if (BlurredDisplay != null)
 			BlurredDisplay.Visible = false;
 		if (_blueOverlay != null)
 			_blueOverlay.Visible = false;
 		
-		// Masquer tout message central
 		if (_centerMessageLabel != null)
 			_centerMessageLabel.Visible = false;
 		
-		// Ajouter un petit délai pour s'assurer que tout est prêt
+		// Activation différée des contrôles
 		var timer = GetTree().CreateTimer(0.2f);
 		timer.Timeout += () => {
-			// Appel de EnablePlayerControls qui contient déjà un délai
 			EnablePlayerControls();
 			GD.Print("StartGameAfterRestart terminé");
 		};
 	}
 
-	// Modifier les chemins audio dans toutes les méthodes nécessaires
+	/**
+	 * Joue le son de téléportation sur la cible
+	 */
 	private void PlayTeleportSound(Node3D target)
 	{
 		var audioPlayer = new AudioStreamPlayer3D();
 		target.AddChild(audioPlayer);
 		
-		// Charger le son de téléportation (CORRIGÉ)
+		// Chargement du son
 		audioPlayer.Stream = ResourceLoader.Load<AudioStream>("res://assets/audio/bruit_teleporteur.wav");
 		
-		// Configuration du son
-		audioPlayer.VolumeDb = 5.0f; // Volume
+		// Configuration
+		audioPlayer.VolumeDb = 5.0f;
 		audioPlayer.MaxDistance = 100.0f;
 		audioPlayer.Autoplay = true;
 		
-		// Supprimer le lecteur une fois le son terminé
+		// Nettoyage automatique
 		audioPlayer.Finished += () => audioPlayer.QueueFree();
 	}
 
-	// Méthode modifiée pour activer les contrôles du joueur
+	/**
+	 * Active les contrôles du joueur avec connexion Arduino
+	 */
 	private void EnablePlayerControls()
 	{
-		// Rechercher le joueur si la référence est perdue
+		// Recherche du joueur si nécessaire
 		if (_playerBall == null)
 		{
 			_playerBall = GetTree().Root.FindChild("PlayerBall", true, false) as PlayerBall;
 			GD.Print("Recherche du PlayerBall après redémarrage...");
 		}
 		
-		// Rechercher l'ArduinoManager si nécessaire
+		// Recherche de l'ArduinoManager si nécessaire
 		if (_arduinoManager == null)
 		{
 			_arduinoManager = ArduinoManager.Instance;
@@ -1655,7 +1722,7 @@ public partial class MainScene : Node3D
 			GD.Print("Recherche de l'ArduinoManager après redémarrage...");
 		}
 		
-		// S'assurer que l'Arduino est bien configuré
+		// Reconnexion de l'Arduino au joueur
 		if (_arduinoManager != null && _playerBall != null)
 		{
 			_playerBall.SetArduinoManager(_arduinoManager);
@@ -1666,7 +1733,7 @@ public partial class MainScene : Node3D
 			GD.PrintErr("ERREUR: ArduinoManager ou PlayerBall null dans EnablePlayerControls!");
 		}
 		
-		// Activer les contrôles du joueur après un court délai pour s'assurer que tout est prêt
+		// Activation différée des contrôles
 		if (_playerBall != null)
 		{
 			var timer = GetTree().CreateTimer(0.5f);

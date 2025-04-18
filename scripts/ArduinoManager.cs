@@ -4,16 +4,20 @@ using System.IO.Ports;
 using System.Globalization;
 using System.Threading;
 
-/// <summary>
-/// Gestionnaire Arduino implémentant un pattern Singleton pour éviter les problèmes d'accès multiples au port
-/// </summary>
+/**
+ * ArduinoManager - Gestionnaire de communication avec Arduino
+ * 
+ * Implémente un pattern Singleton pour garantir une connexion unique au port série
+ * et éviter les conflits d'accès. Gère la lecture et le traitement des données
+ * Arduino (gyroscope, boutons) avec filtrage et calibration.
+ */
 public partial class ArduinoManager : Node
 {
-	// Configuration du port COM
-	private const string PORT_NAME = "COM5";  // Port à utiliser (à ajuster si nécessaire)
-	private const int BAUD_RATE = 9600;       // Vitesse de communication
+	// Configuration de la communication série
+	private const string PORT_NAME = "COM5";
+	private const int BAUD_RATE = 9600;
 	
-	// SINGLETON PATTERN - Instance unique
+	// Implémentation du pattern Singleton
 	private static ArduinoManager _instance;
 	public static ArduinoManager Instance 
 	{ 
@@ -21,48 +25,64 @@ public partial class ArduinoManager : Node
 		private set { _instance = value; }
 	}
 	
-	// Communication
+	// Objets de communication
 	private SerialPort _serialPort;
 	private bool _isConnected = false;
 	
-	// Données du gyroscope
+	// Données du gyroscope et filtrage
 	private float _accelX = 0;
 	private float _accelY = 0;
 	private float _accelZ = 0;
 	
-	// Gestion du saut
+	// Paramètres de filtrage du bruit
+	private const float NOISE_THRESHOLD = 0.02f;
+	private const float FILTER_FACTOR = 0.6f;
+	
+	// Variables pour le filtrage exponentiel
+	private float _filteredAccelX = 0;
+	private float _filteredAccelY = 0;
+	private float _filteredAccelZ = 0;
+	
+	// États de détection du saut
 	private bool _jumpDetected = false;
-	private bool _jumpProcessed = true;  // Flag pour indiquer si le saut a été traité
+	private bool _jumpProcessed = true;
 	
-	// Gestion du bouton - Refactorisation complète
-	public bool _buttonPressed = false;     // État physique du bouton (pressé ou non)
-	public bool _buttonJustPressed = false; // Bouton vient juste d'être pressé
-	public bool _buttonJustReleased = false; // Bouton vient juste d'être relâché
-	public bool _buttonEventProcessed = true; // L'événement a-t-il été traité
+	// États de détection des boutons
+	public bool _buttonPressed = false;
+	public bool _buttonJustPressed = false;
+	public bool _buttonJustReleased = false;
+	public bool _buttonEventProcessed = true;
 	
-	// Calibration
+	// État de calibration
 	private bool _isCalibrating = false;
 	
-	// Messages UI
+	// Références UI
 	private Label _statusLabel;
 	private Label _jumpLabel;
 	private Button _calibrateButton;
 	
-	// Variable statique pour suivre l'état global du port
+	// Variable de suivi global de l'état du port
 	private static bool _portHasBeenReset = false;
 
+	/**
+	 * Initialisation du Node et configuration du Singleton
+	 * Vérifie si une instance existe déjà, sinon initialise la connexion Arduino
+	 */
 	public override void _Ready()
 	{
-		// Implémenter le pattern Singleton
+		// Gestion du pattern Singleton
 		if (Instance != null && Instance != this)
 		{
-			// Si une instance existe déjà, simplement la réutiliser
+			// Réutilisation de l'instance existante
 			GD.Print("Instance d'ArduinoManager déjà existante - Réutilisation complète");
 			
-			// Utiliser les valeurs de l'instance existante
+			// Copie des valeurs de l'instance existante
 			_accelX = Instance._accelX;
 			_accelY = Instance._accelY;
 			_accelZ = Instance._accelZ;
+			_filteredAccelX = Instance._filteredAccelX;
+			_filteredAccelY = Instance._filteredAccelY;
+			_filteredAccelZ = Instance._filteredAccelZ;
 			_jumpDetected = Instance._jumpDetected;
 			_jumpProcessed = Instance._jumpProcessed;
 			_buttonPressed = Instance._buttonPressed;
@@ -73,67 +93,75 @@ public partial class ArduinoManager : Node
 			_isConnected = Instance._isConnected;
 			_serialPort = Instance._serialPort;
 			
-			// Ne pas recréer une nouvelle connexion
 			GD.Print("Réutilisation de l'instance existante, connexion déjà établie");
 			
-			// Supprimer cette instance pour utiliser uniquement la première
+			// Suppression de cette instance dupliquée
 			QueueFree();
 			return;
 		}
 		else
 		{
-			// Première instance - Initialisation
+			// Initialisation de la première instance comme Singleton
 			Instance = this;
 			GD.Print("Nouvelle instance d'ArduinoManager créée comme Singleton");
 			
-			// Initialiser la connexion seulement s'il n'y a pas de connexion existante
+			// Initialisation de la connexion si nécessaire
 			if (_serialPort == null || !_isConnected)
 			{
 				ConnectToArduino();
 			}
 		}
 		
-		// Trouver les composants UI (à adapter selon votre scène)
-		// Utiliser CallDeferred pour rechercher les composants UI
+		// Recherche différée des composants UI
 		CallDeferred(nameof(FindUIComponents));
 	}
 	
+	/**
+	 * Recherche les composants UI nécessaires dans l'arbre de scène
+	 * Appelée de manière différée pour s'assurer que les nœuds sont disponibles
+	 */
 	private void FindUIComponents()
 	{
-		// Recherche des composants UI après que le nœud a été ajouté à la scène
 		_statusLabel = GetNodeOrNull<Label>("%StatusLabel");
 		_jumpLabel = GetNodeOrNull<Label>("%JumpLabel");
 		_calibrateButton = GetNodeOrNull<Button>("%CalibrateButton");
 		
-		// Connecter le bouton de calibration
 		if (_calibrateButton != null)
 			_calibrateButton.Pressed += OnCalibrateButtonPressed;
 	}
 
+	/**
+	 * Traitement à chaque frame 
+	 * Réinitialise les états transitoires et lit les données Arduino
+	 */
 	public override void _Process(double delta)
 	{
-		// Seule l'instance principale gère la communication
+		// Ne traiter que si c'est l'instance principale
 		if (this != Instance) return;
 
-		// Réinitialiser les états transitoires à chaque frame
+		// Réinitialisation des états transitoires à chaque frame
 		_buttonJustPressed = false;
 		_buttonJustReleased = false;
 		
-		// Lire les données de l'Arduino si disponibles
+		// Lecture des données Arduino si disponibles
 		if (_isConnected && _serialPort != null && _serialPort.IsOpen)
 		{
 			ReadSerialData();
 		}
 	}
 	
-	// Gestionnaire d'événement pour le bouton de calibration
+	/**
+	 * Gestionnaire d'événement pour le bouton de calibration UI
+	 */
 	private void OnCalibrateButtonPressed()
 	{
 		if (!_isConnected) return;
 		RequestCalibration();
 	}
 	
-	// Demander une calibration à l'Arduino
+	/**
+	 * Envoie une commande de calibration à l'Arduino
+	 */
 	private void RequestCalibration()
 	{
 		if (!_isConnected || _serialPort == null || !_serialPort.IsOpen) return;
@@ -162,19 +190,21 @@ public partial class ArduinoManager : Node
 		}
 	}
 
+	/**
+	 * Lit les données disponibles sur le port série
+	 * Gère les exceptions pour assurer la robustesse de la communication
+	 */
 	private void ReadSerialData()
 	{
 		if (_serialPort == null || !_serialPort.IsOpen) return;
 
 		try
 		{
-			// Vérifier s'il y a des données disponibles
 			if (_serialPort.BytesToRead > 0)
 			{
 				string message = _serialPort.ReadLine().Trim();
-				// GD.Print("Données reçues: " + message); // Commenté pour réduire les logs
 				
-				// Analyser le message
+				// Analyse du message reçu
 				ParseArduinoData(message);
 			}
 		}
@@ -186,7 +216,7 @@ public partial class ArduinoManager : Node
 		{
 			GD.PrintErr("Erreur de lecture du port série: " + e.Message);
 			
-			// Si une erreur se produit, on considère que la connexion est perdue
+			// Gestion de la perte de connexion
 			_isConnected = false;
 			UpdateStatus("Connexion perdue");
 			
@@ -204,9 +234,13 @@ public partial class ArduinoManager : Node
 		}
 	}
 
+	/**
+	 * Analyse les données reçues de l'Arduino
+	 * Supporte plusieurs formats: calibration, événements et données gyroscope
+	 */
 	private void ParseArduinoData(string data)
 	{
-		// Traiter les messages spéciaux de calibration
+		// Traitement des messages de calibration
 		if (data.StartsWith("CAL:"))
 		{
 			if (data == "CAL:START")
@@ -220,7 +254,6 @@ public partial class ArduinoManager : Node
 				_isCalibrating = false;
 				UpdateStatus("Calibration terminée");
 				
-				// Réactiver le bouton de calibration
 				if (_calibrateButton != null)
 				{
 					_calibrateButton.Disabled = false;
@@ -229,7 +262,7 @@ public partial class ArduinoManager : Node
 			return;
 		}
 		
-		// Traiter les événements de bouton - AMÉLIORÉ
+		// Traitement des événements de bouton
 		if (data.StartsWith("BTN:"))
 		{
 			if (data == "BTN:PRESSED")
@@ -237,20 +270,18 @@ public partial class ArduinoManager : Node
 				GD.Print("Bouton Arduino pressé!");
 				_buttonPressed = true;
 				_buttonJustPressed = true;
-				_buttonEventProcessed = false; // Très important de le mettre à false
+				_buttonEventProcessed = false;
 			}
 			else if (data == "BTN:RELEASED")
 			{
 				GD.Print("Bouton Arduino relâché");
 				_buttonPressed = false;
 				_buttonJustReleased = true;
-				// Ne pas réinitialiser _buttonEventProcessed ici pour permettre
-				// l'événement de bouton complet (appuyer + relâcher)
 			}
 			return;
 		}
 		
-		// Traiter les événements de saut
+		// Traitement des événements de saut
 		if (data.StartsWith("EVENT:"))
 		{
 			if (data == "EVENT:JUMP_DETECTED")
@@ -262,33 +293,55 @@ public partial class ArduinoManager : Node
 			return;
 		}
 
-		// Format standard X,Y,Z,JUMP,BUTTON
+		// Traitement des données d'accélération au format X,Y,Z,JUMP,BUTTON
 		string[] values = data.Split(',');
 		if (values.Length >= 4)
 		{
-			// Utiliser InvariantCulture pour assurer la compatibilité avec les décimales
+			// Traitement des données d'accélération X
 			if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x))
-				_accelX = x;
+			{
+				// Application du filtre de bruit à seuil
+				if (Math.Abs(x) < NOISE_THRESHOLD)
+					x = 0;
+				
+				// Application du filtre de lissage exponentiel
+				_filteredAccelX = (_filteredAccelX * (1 - FILTER_FACTOR)) + (x * FILTER_FACTOR);
+				_accelX = _filteredAccelX;
+			}
 			
+			// Traitement des données d'accélération Y
 			if (float.TryParse(values[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y))
-				_accelY = y;
+			{
+				if (Math.Abs(y) < NOISE_THRESHOLD)
+					y = 0;
+				
+				_filteredAccelY = (_filteredAccelY * (1 - FILTER_FACTOR)) + (y * FILTER_FACTOR);
+				_accelY = _filteredAccelY;
+			}
 			
+			// Traitement des données d'accélération Z
 			if (float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
-				_accelZ = z;
+			{
+				if (Math.Abs(z) < NOISE_THRESHOLD)
+					z = 0;
+				
+				_filteredAccelZ = (_filteredAccelZ * (1 - FILTER_FACTOR)) + (z * FILTER_FACTOR);
+				_accelZ = _filteredAccelZ;
+			}
 			
-			// Vérifier si un saut est détecté (la valeur doit être 1)
+			// Détection du saut dans les données
 			if (values[3] == "1" && !_jumpDetected)
 			{
 				_jumpDetected = true;
 				_jumpProcessed = false;
 			}
 			
-			// Vérifier si un bouton est pressé (dans le cas où il est inclus dans la trame)
+			// Traitement de l'état du bouton s'il est inclus
 			if (values.Length >= 5)
 			{
 				bool newButtonState = values[4] == "1";
 				
-				// Détecter les transitions
+				// Détection des transitions d'état du bouton
 				if (newButtonState && !_buttonPressed)
 				{
 					_buttonPressed = true;
@@ -304,7 +357,9 @@ public partial class ArduinoManager : Node
 		}
 	}
 	
-	// Mettre à jour le message de statut
+	/**
+	 * Met à jour le message de statut dans l'UI
+	 */
 	private void UpdateStatus(string message)
 	{
 		if (_statusLabel != null)
@@ -313,7 +368,9 @@ public partial class ArduinoManager : Node
 		}
 	}
 	
-	// Afficher un message de saut temporaire
+	/**
+	 * Affiche un message temporaire lors de la détection d'un saut
+	 */
 	private void ShowJumpMessage(string message)
 	{
 		if (_jumpLabel == null) return;
@@ -321,10 +378,10 @@ public partial class ArduinoManager : Node
 		_jumpLabel.Text = message;
 		_jumpLabel.Visible = true;
 		
-		// Créer un timer pour masquer le message après un délai
+		// Timer pour masquer le message après un délai
 		var timer = new Godot.Timer();
 		AddChild(timer);
-		timer.WaitTime = 1.0; // 1 seconde
+		timer.WaitTime = 1.0;
 		timer.OneShot = true;
 		timer.Timeout += () => {
 			_jumpLabel.Visible = false;
@@ -333,9 +390,13 @@ public partial class ArduinoManager : Node
 		timer.Start();
 	}
 	
+	/**
+	 * Établit la connexion avec l'Arduino
+	 * Gère les tentatives multiples et la robustesse
+	 */
 	private void ConnectToArduino()
 	{
-		// Ne pas tenter de se connecter si déjà connecté
+		// Éviter les connexions redondantes
 		if (_isConnected && _serialPort != null && _serialPort.IsOpen) 
 		{
 			GD.Print("ArduinoManager: Port déjà connecté, pas de reconnexion nécessaire");
@@ -344,7 +405,7 @@ public partial class ArduinoManager : Node
 		
 		try
 		{
-			// Si un port est déjà ouvert, le fermer d'abord
+			// Fermeture propre d'un port existant
 			if (_serialPort != null && _serialPort.IsOpen)
 			{
 				_serialPort.Close();
@@ -352,22 +413,22 @@ public partial class ArduinoManager : Node
 				GD.Print("Port série fermé avant reconnexion");
 			}
 			
-			// NOUVEAU: Destruction et recréation complète du port série pour éviter les problèmes résiduels
+			// Réinitialisation complète du port pour éviter les problèmes résiduels
 			_serialPort = null;
 			GD.Print("Port série complètement réinitialisé");
 			
-			// Configurer et ouvrir le port série
+			// Configuration du nouveau port série
 			_serialPort = new SerialPort(PORT_NAME, BAUD_RATE)
 			{
-				ReadTimeout = 500,          // Timeout de lecture
-				WriteTimeout = 500,         // Timeout d'écriture
-				Handshake = Handshake.None, // Pas de contrôle de flux
-				DtrEnable = true,           // Data Terminal Ready pour éviter le reset d'Arduino
-				RtsEnable = true,           // Request To Send
-				NewLine = "\n"              // S'assurer que le retour à la ligne est correct
+				ReadTimeout = 500,
+				WriteTimeout = 500,
+				Handshake = Handshake.None,
+				DtrEnable = true,
+				RtsEnable = true,
+				NewLine = "\n"
 			};
 			
-			// Essayer d'ouvrir avec plusieurs tentatives
+			// Tentatives multiples d'ouverture du port
 			int attempts = 0;
 			const int MAX_ATTEMPTS = 3;
 			bool success = false;
@@ -387,12 +448,11 @@ public partial class ArduinoManager : Node
 					
 					if (attempts < MAX_ATTEMPTS)
 					{
-						// Attendre un peu avant de réessayer
 						System.Threading.Thread.Sleep(100);
 					}
 					else
 					{
-						throw; // Relancer l'exception si toutes les tentatives échouent
+						throw;
 					}
 				}
 			}
@@ -401,13 +461,18 @@ public partial class ArduinoManager : Node
 			UpdateStatus("Connecté à l'Arduino sur " + PORT_NAME);
 			GD.Print("Connecté à l'Arduino sur le port " + PORT_NAME);
 			
-			// Ignorer les données initiales
+			// Nettoyage du buffer d'entrée
 			if (_serialPort.BytesToRead > 0)
 			{
 				_serialPort.DiscardInBuffer();
 			}
 			
-			// NOUVEAU: Demander une calibration immédiate
+			// Réinitialisation des valeurs filtrées
+			_filteredAccelX = 0;
+			_filteredAccelY = 0;
+			_filteredAccelZ = 0;
+			
+			// Démarrage d'une calibration immédiate
 			RequestCalibration();
 		}
 		catch (Exception e)
@@ -418,44 +483,53 @@ public partial class ArduinoManager : Node
 		}
 	}
 
-
-	// Modifier les méthodes de lecture pour ne jamais renvoyer de valeurs trop petites
+	/**
+	 * Accesseur pour la valeur d'accélération X filtrée
+	 */
 	public float GetAccelX()
 	{
 		ValidateConnection();
-		// Ignorer les valeurs trop petites qui pourraient être du bruit
-		return Math.Abs(_accelX) < 0.03f ? 0 : _accelX;
+		return _accelX;
 	}
 
+	/**
+	 * Accesseur pour la valeur d'accélération Y filtrée
+	 */
 	public float GetAccelY()
 	{
 		ValidateConnection();
-		// Ignorer les valeurs trop petites qui pourraient être du bruit
-		return Math.Abs(_accelY) < 0.03f ? 0 : _accelY;
+		return _accelY;
 	}
 
+	/**
+	 * Accesseur pour la valeur d'accélération Z filtrée
+	 */
 	public float GetAccelZ()
 	{
 		ValidateConnection();
-		// Ignorer les valeurs trop petites qui pourraient être du bruit
-		return Math.Abs(_accelZ) < 0.03f ? 0 : _accelZ;
+		return _accelZ;
 	}
 
-
-	// NOUVELLE MÉTHODE: Vérifier si un saut vient d'être détecté (une seule fois)
+	/**
+	 * Vérifie si un saut vient d'être détecté
+	 * Utilise une logique one-shot pour ne pas traiter plusieurs fois le même saut
+	 */
 	public bool IsJumpDetected()
 	{
 		if (_jumpDetected && !_jumpProcessed)
 		{
-			_jumpProcessed = true; // Marquer comme traité
+			_jumpProcessed = true;
 			return true;
 		}
 		return false;
 	}
 	
+	/**
+	 * Vérifie si le bouton vient d'être pressé
+	 * Implémente une logique one-shot pour éviter les déclenchements multiples
+	 */
 	public bool IsButtonJustPressed()
 	{
-		// Si le bouton vient d'être pressé, le traiter une seule fois
 		if (_buttonJustPressed && !_buttonEventProcessed)
 		{
 			_buttonJustPressed = false;
@@ -468,6 +542,10 @@ public partial class ArduinoManager : Node
 		return false;
 	}
 	
+	/**
+	 * Force la réinitialisation de l'état du bouton
+	 * Utile en cas de comportement incohérent
+	 */
 	public void ForceResetButtonState()
 	{
 		_buttonPressed = false;
@@ -477,22 +555,26 @@ public partial class ArduinoManager : Node
 		
 		GD.Print("État du bouton Arduino réinitialisé de force");
 	}
-
-
-
 	
-	// NOUVELLE MÉTHODE: Vérifier si le bouton est actuellement pressé
+	/**
+	 * Vérifie si le bouton est actuellement pressé
+	 */
 	public bool IsButtonPressed()
 	{
 		return _buttonPressed;
 	}
 
-	// Vérifier si la calibration est en cours
+	/**
+	 * Vérifie si la calibration est en cours
+	 */
 	public bool IsCalibrating()
 	{
 		return _isCalibrating;
 	}
 
+	/**
+	 * Vérifie et tente de rétablir la connexion si nécessaire
+	 */
 	public bool ValidateConnection()
 	{
 		if (_serialPort == null || !_serialPort.IsOpen)
@@ -504,26 +586,31 @@ public partial class ArduinoManager : Node
 		return _isConnected;
 	}
 	
-	// Override de _ExitTree pour garantir la fermeture du port
+	/**
+	 * Nettoyage avant destruction du node
+	 * S'assure que le port série est fermé proprement
+	 */
 	public override void _ExitTree()
 	{
-		// Ne fermer le port que si c'est l'instance principale
+		// Ne traiter que l'instance principale
 		if (this != Instance) return;
 		
-		// Reset l'instance singleton si c'est nous
+		// Réinitialisation du singleton si c'est cette instance
 		if (Instance == this)
 		{
 			Instance = null;
 		}
 		
-		// S'assurer que le port est fermé
+		// Fermeture propre du port
 		ForceClosePort();
 	}
 	
-	// Méthode ForceClosePort améliorée
+	/**
+	 * Force la fermeture du port série
+	 * Méthode robuste qui gère toutes les erreurs potentielles
+	 */
 	public void ForceClosePort()
 	{
-		// Fermer le port série s'il est ouvert
 		if (_serialPort != null)
 		{
 			try
@@ -534,7 +621,7 @@ public partial class ArduinoManager : Node
 					_isConnected = false;
 					GD.Print("Port série fermé via ForceClosePort");
 				}
-				_serialPort = null; // IMPORTANT: Détruire complètement la référence
+				_serialPort = null;
 			}
 			catch (Exception e)
 			{
@@ -546,14 +633,13 @@ public partial class ArduinoManager : Node
 			GD.Print("ForceClosePort - Aucun port série à fermer");
 		}
 	}
-
 	
-	/// <summary>
-	/// Réinitialise l'état global du port série pour éviter les problèmes lors des redémarrages
-	/// </summary>
+	/**
+	 * Réinitialise l'état global du port série
+	 * Méthode statique utilisable sans instance
+	 */
 	public static void ResetPortState()
 	{
-		// Fermer le port série si l'instance existe
 		if (Instance != null)
 		{
 			Instance.ForceClosePort();
@@ -564,21 +650,20 @@ public partial class ArduinoManager : Node
 			GD.Print("ResetPortState appelée mais aucune instance d'ArduinoManager n'existe");
 		}
 		
-		// Marquer l'état comme réinitialisé
 		_portHasBeenReset = true;
 	}
 	
-	/// <summary>
-	/// Vérifie si le port a été réinitialisé
-	/// </summary>
+	/**
+	 * Vérifie si le port a été réinitialisé
+	 */
 	public static bool HasBeenReset()
 	{
 		return _portHasBeenReset;
 	}
 	
-	/// <summary>
-	/// Réinitialise complètement l'état du bouton
-	/// </summary>
+	/**
+	 * Réinitialise complètement l'état du bouton
+	 */
 	public void ResetButtonState()
 	{
 		_buttonPressed = false;
@@ -589,12 +674,12 @@ public partial class ArduinoManager : Node
 		GD.Print("État du bouton Arduino réinitialisé");
 	}
 	
-	/// <summary>
-	/// Force une reconnexion en cas de problème persistant
-	/// </summary>
+	/**
+	 * Force une reconnexion en cas de problème persistant
+	 * Tente d'abord une recalibration, puis une reconnexion complète si nécessaire
+	 */
 	public void ForceReconnect()
 	{
-		// Forcer une nouvelle calibration si connecté
 		if (_isConnected && _serialPort != null && _serialPort.IsOpen)
 		{
 			RequestCalibration();
@@ -602,11 +687,10 @@ public partial class ArduinoManager : Node
 		}
 		else
 		{
-			// Tenter une nouvelle connexion propre
+			// Reconnexion complète après un bref délai
 			ForceClosePort();
 			_serialPort = null;
 			
-			// Attendre un court instant
 			var timer = new Godot.Timer();
 			AddChild(timer);
 			timer.WaitTime = 0.5f;

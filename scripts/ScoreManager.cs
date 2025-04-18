@@ -4,20 +4,26 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.IO;
 
-/// <summary>
-/// Classe dédiée à la gestion des scores, indépendante de MainScene
-/// </summary>
+/**
+ * ScoreManager - Gestionnaire des scores centralisé
+ * 
+ * Classe indépendante qui gère la sauvegarde, le chargement et le tri
+ * des scores du jeu avec persistance entre les sessions.
+ * Implémente un pattern Singleton.
+ */
 public partial class ScoreManager : Node
 {
-
-	// Structure des entrées de score
+	// Structure de données pour les entrées de score
 	[Serializable]
 	public struct ScoreEntry
 	{
-	public int mazesCompleted { get; set; }
-	public int totalCats { get; set; }
-	public string date { get; set; }
+		public int mazesCompleted { get; set; }
+		public int totalCats { get; set; }
+		public string date { get; set; }
 		
+		/**
+		 * Crée une nouvelle entrée de score
+		 */
 		public ScoreEntry(int mazes, int cats)
 		{
 			mazesCompleted = mazes;
@@ -25,6 +31,9 @@ public partial class ScoreManager : Node
 			date = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 		}
 		
+		/**
+		 * Format d'affichage personnalisé pour l'UI
+		 */
 		public override string ToString()
 		{
 			return $"Labyrinthe: {mazesCompleted} | Chats: {totalCats}";
@@ -38,9 +47,9 @@ public partial class ScoreManager : Node
 	private const int MAX_SCORES = 5;
 	
 	// Chemin du fichier de sauvegarde
-	private  string _savePath = "user://saves/highscores.json";
+	private string _savePath = "user://saves/highscores.json";
 	
-	// Singleton
+	// Implémentation du Singleton
 	private static ScoreManager _instance;
 	public static ScoreManager Instance
 	{
@@ -48,9 +57,12 @@ public partial class ScoreManager : Node
 		private set { _instance = value; }
 	}
 	
+	/**
+	 * Initialisation du gestionnaire de scores
+	 */
 	public override void _Ready()
 	{
-		// Implémenter le pattern Singleton
+		// Configuration du Singleton
 		if (Instance != null && Instance != this)
 		{
 			QueueFree();
@@ -59,123 +71,125 @@ public partial class ScoreManager : Node
 		
 		Instance = this;
 		
-		// Assurer que le répertoire de sauvegarde existe
+		// Préparation de la persistance
 		EnsureSaveDirectoryExists();
 		
-		// Charger les scores existants
+		// Chargement des scores existants
 		LoadHighScores();
 		
-		// S'assurer que la liste des scores est valide
+		// Validation des données
 		ValidateScores();
 		
 		GD.Print("ScoreManager initialisé comme singleton");
 	}
 	
-	// Assurer que le répertoire de sauvegarde existe
-private void EnsureSaveDirectoryExists()
-{
-	string saveDir = "user://saves/";
-	string absPath = ProjectSettings.GlobalizePath(saveDir);
-
-	if (!DirAccess.DirExistsAbsolute(absPath))
+	/**
+	 * S'assure que le répertoire de sauvegarde existe
+	 */
+	private void EnsureSaveDirectoryExists()
 	{
-		var dir = DirAccess.Open("user://");
-		if (dir != null)
-		{
-			dir.MakeDirRecursive("saves");
-			GD.Print("Répertoire de sauvegarde créé");
-		}
-		else
-		{
-			GD.PrintErr("Impossible d'ouvrir le répertoire user://");
-		}
-	}
-	else
-	{
-		GD.Print("Répertoire de sauvegarde déjà existant");
-	}
-}
-	
-	// Charger les scores depuis le fichier JSON
-// Dans LoadHighScores() du ScoreManager, ajoutons une vérification supplémentaire
-private void LoadHighScores()
-{
-	_highScores.Clear();
+		string saveDir = "user://saves/";
+		string absPath = ProjectSettings.GlobalizePath(saveDir);
 
-
-
-	try
-	{
-		// Vérifier si le fichier existe
-		if (Godot.FileAccess.FileExists(_savePath))
+		if (!DirAccess.DirExistsAbsolute(absPath))
 		{
-			using var file = Godot.FileAccess.Open(_savePath, Godot.FileAccess.ModeFlags.Read);
-			if (file != null)
+			var dir = DirAccess.Open("user://");
+			if (dir != null)
 			{
-				string jsonContent = file.GetAsText();
-				GD.Print($"Contenu du fichier de scores: {jsonContent}");
-
-				try
-				{
-					// Tenter de désérialiser même si le JSON contient [{}]
-					var loadedScores = JsonSerializer.Deserialize<List<ScoreEntry>>(jsonContent);
-					if (loadedScores != null)
-					{
-						foreach (var score in loadedScores)
-						{
-							// Vérifier si l'objet n'est pas null et contient au moins une donnée significative
-							if (score.mazesCompleted >= 0 || score.totalCats >= 0)
-								{
-								_highScores.Add(score);
-								}
-						}
-
-						GD.Print($"Chargement réussi de {_highScores.Count} scores valides");
-
-						// Si aucun score valide n'a été trouvé, on peut choisir de régénérer un fichier propre
-						if (_highScores.Count == 0)
-						{
-							GD.Print("Aucun score valide trouvé. Création d'une nouvelle liste propre.");
-							SaveHighScores();
-						}
-					}
-					else
-					{
-						GD.Print("JSON vide ou invalide. Création d'une nouvelle liste.");
-						_highScores = new List<ScoreEntry>();
-						SaveHighScores();
-					}
-				}
-				catch (JsonException ex)
-				{
-					GD.PrintErr($"Erreur JSON: {ex.Message}. Création d'une nouvelle liste de scores.");
-					_highScores = new List<ScoreEntry>();
-					SaveHighScores();
-				}
+				dir.MakeDirRecursive("saves");
+				GD.Print("Répertoire de sauvegarde créé");
+			}
+			else
+			{
+				GD.PrintErr("Impossible d'ouvrir le répertoire user://");
 			}
 		}
 		else
 		{
-			GD.Print("Aucun fichier de scores trouvé. Création d'une nouvelle liste.");
-			_highScores = new List<ScoreEntry>();
+			GD.Print("Répertoire de sauvegarde déjà existant");
 		}
 	}
-	catch (Exception e)
+	
+	/**
+	 * Charge les scores depuis le fichier JSON avec gestion d'erreurs robuste
+	 */
+	private void LoadHighScores()
 	{
-		GD.PrintErr($"Erreur lors du chargement des scores: {e.Message}");
-		_highScores = new List<ScoreEntry>();
+		_highScores.Clear();
+
+		try
+		{
+			// Vérification de l'existence du fichier
+			if (Godot.FileAccess.FileExists(_savePath))
+			{
+				using var file = Godot.FileAccess.Open(_savePath, Godot.FileAccess.ModeFlags.Read);
+				if (file != null)
+				{
+					string jsonContent = file.GetAsText();
+					GD.Print($"Contenu du fichier de scores: {jsonContent}");
+
+					try
+					{
+						// Désérialisation avec validation des données
+						var loadedScores = JsonSerializer.Deserialize<List<ScoreEntry>>(jsonContent);
+						if (loadedScores != null)
+						{
+							foreach (var score in loadedScores)
+							{
+								// Validation des données
+								if (score.mazesCompleted >= 0 || score.totalCats >= 0)
+								{
+									_highScores.Add(score);
+								}
+							}
+
+							GD.Print($"Chargement réussi de {_highScores.Count} scores valides");
+
+							// Régénération si aucun score valide
+							if (_highScores.Count == 0)
+							{
+								GD.Print("Aucun score valide trouvé. Création d'une nouvelle liste propre.");
+								SaveHighScores();
+							}
+						}
+						else
+						{
+							GD.Print("JSON vide ou invalide. Création d'une nouvelle liste.");
+							_highScores = new List<ScoreEntry>();
+							SaveHighScores();
+						}
+					}
+					catch (JsonException ex)
+					{
+						GD.PrintErr($"Erreur JSON: {ex.Message}. Création d'une nouvelle liste de scores.");
+						_highScores = new List<ScoreEntry>();
+						SaveHighScores();
+					}
+				}
+			}
+			else
+			{
+				GD.Print("Aucun fichier de scores trouvé. Création d'une nouvelle liste.");
+				_highScores = new List<ScoreEntry>();
+			}
+		}
+		catch (Exception e)
+		{
+			GD.PrintErr($"Erreur lors du chargement des scores: {e.Message}");
+			_highScores = new List<ScoreEntry>();
+		}
+		
+		SortAndLimitScores();
 	}
 	
-	SortAndLimitScores();
-}
-
-	
-	// Vérifier et corriger les scores si nécessaire
+	/**
+	 * Vérifie et corrige les scores si nécessaire
+	 */
 	private void ValidateScores()
 	{
 		bool needsSaving = false;
 		
-		// Supprimer les scores invalides (tous à zéro)
+		// Suppression des scores invalides
 		for (int i = _highScores.Count - 1; i >= 0; i--)
 		{
 			if (_highScores[i].mazesCompleted <= 0 && _highScores[i].totalCats <= 0)
@@ -185,50 +199,54 @@ private void LoadHighScores()
 			}
 		}
 		
-		// Si des modifications ont été faites, sauvegarder
+		// Sauvegarde si des modifications ont été faites
 		if (needsSaving)
 		{
 			SaveHighScores();
 		}
 	}
 	
-	// Trier et limiter les scores
+	/**
+	 * Trie et limite les scores selon les paramètres configurés
+	 */
 	private void SortAndLimitScores()
 	{
-		// Trier les scores (par nombre de labyrinthes puis par nombre de chats)
+		// Tri par nombre de labyrinthes puis par nombre de chats
 		_highScores.Sort((a, b) => {
 			int mazeCompare = b.mazesCompleted.CompareTo(a.mazesCompleted);
 			if (mazeCompare != 0) return mazeCompare;
 			return b.totalCats.CompareTo(a.totalCats);
 		});
 		
-		// Limiter à MAX_SCORES
+		// Limitation au nombre maximum configuré
 		if (_highScores.Count > MAX_SCORES)
 		{
 			_highScores.RemoveRange(MAX_SCORES, _highScores.Count - MAX_SCORES);
 		}
 	}
 	
-	// Sauvegarder les scores
+	/**
+	 * Sauvegarde les scores dans un fichier JSON
+	 */
 	private void SaveHighScores()
 	{
 		try
 		{
-			// S'assurer qu'il y a des scores à sauvegarder ou créer un tableau vide
+			// S'assurer qu'il y a quelque chose à sauvegarder
 			var scoresToSave = _highScores.Count > 0 ? _highScores : new List<ScoreEntry>();
 			
-			// Sérialiser la liste en JSON
+			// Configuration de la sérialisation
 			var jsonOptions = new JsonSerializerOptions
 			{
 				WriteIndented = true,
-				PropertyNamingPolicy = JsonNamingPolicy.CamelCase // 💥 clé du truc !
+				PropertyNamingPolicy = JsonNamingPolicy.CamelCase // Important pour la compatibilité
 			};
 			string jsonString = JsonSerializer.Serialize(scoresToSave, jsonOptions);
 			
-			// Créer le répertoire si nécessaire
+			// Création du répertoire si nécessaire
 			EnsureSaveDirectoryExists();
 			
-			// Écrire dans le fichier
+			// Écriture dans le fichier
 			using var file = Godot.FileAccess.Open(_savePath, Godot.FileAccess.ModeFlags.Write);
 			if (file != null)
 			{
@@ -236,7 +254,7 @@ private void LoadHighScores()
 				file.Flush();
 				GD.Print($"Scores sauvegardés avec succès dans {_savePath}");
 				
-				// Afficher les scores pour débogage
+				// Affichage des scores sauvegardés pour débogage
 				GD.Print("=== SCORES SAUVEGARDÉS ===");
 				for (int i = 0; i < _highScores.Count; i++)
 				{
@@ -250,10 +268,12 @@ private void LoadHighScores()
 		}
 	}
 	
-	// Ajouter un nouveau score
+	/**
+	 * Ajoute un nouveau score à la liste
+	 */
 	public void AddScore(int mazesCompleted, int totalCats)
 	{
-		// Vérifier que le score est valide
+		// Validation des données d'entrée
 		if (mazesCompleted <= 0 && totalCats <= 0)
 		{
 			GD.PrintErr("Tentative d'ajout d'un score invalide");
@@ -262,18 +282,20 @@ private void LoadHighScores()
 		
 		GD.Print($"Ajout du score: Labyrinthes={mazesCompleted}, Chats={totalCats}");
 		
-		// Créer et ajouter le score
+		// Création et ajout du score
 		var newScore = new ScoreEntry(mazesCompleted, totalCats);
 		_highScores.Add(newScore);
 		
-		// Trier et limiter
+		// Tri et limitation
 		SortAndLimitScores();
 		
-		// Sauvegarder
+		// Sauvegarde des modifications
 		SaveHighScores();
 	}
 	
-	// Effacer tous les scores (pour réinitialiser)
+	/**
+	 * Efface tous les scores (réinitialisation)
+	 */
 	public void ClearAllScores()
 	{
 		_highScores.Clear();
@@ -281,7 +303,9 @@ private void LoadHighScores()
 		GD.Print("Tous les scores ont été effacés");
 	}
 	
-	// Obtenir la liste des scores pour l'affichage
+	/**
+	 * Retourne une copie de la liste des scores
+	 */
 	public List<ScoreEntry> GetHighScores()
 	{
 		return new List<ScoreEntry>(_highScores);

@@ -1,10 +1,17 @@
 using Godot;
 using System;
 
+/**
+ * PlayerBall - Classe du joueur principal
+ * 
+ * Gère le comportement de la balle de laine contrôlée par le joueur,
+ * incluant le mouvement physique, l'entrée Arduino (gyroscope),
+ * les animations et les effets visuels/sonores.
+ */
 public partial class PlayerBall : RigidBody3D
 {
 	[Export]
-	private float _moveForce = 30.0f; // AUGMENTÉ À 150 pour des mouvements beaucoup plus rapides
+	private float _moveForce = 30.0f;
 	
 	[Export]
 	private float _jumpForce = 20.0f;
@@ -12,82 +19,105 @@ public partial class PlayerBall : RigidBody3D
 	[Export]
 	private bool _useArduino = true;
 	
-	// AJOUT: Variables pour conserver le mouvement même quand les valeurs sont nulles
+	// Paramètres de persistance du mouvement
 	private Vector3 _lastSignificantDirection = Vector3.Zero;
-	private float _directionPersistence = 0.98f; // Facteur de persistance (diminution très lente)
-	private const float DIRECTION_THRESHOLD = 0.05f; // Seuil pour détecter un mouvement significatif
-	private const float ARDUINO_AMPLIFICATION = 4.0f; // FORTEMENT AUGMENTÉ pour des mouvements plus marqués
+	private float _directionPersistence = 0.92f;
+	private const float DIRECTION_THRESHOLD = 0.02f;
+	
+	// Paramètres d'amplification du mouvement
+	private const float MIN_AMPLIFICATION = 1.2f;
+	private const float MAX_AMPLIFICATION = 3f;
+	private float _currentAmplification = MIN_AMPLIFICATION;
+	private const float AMPLIFICATION_RATE = 0.6f;
+	private const float DECELERATION_RATE = 0.25f;
+	
+	// Limite de vitesse
+	private const float MAX_VELOCITY = 18.0f;
+	
+	// Lissage du mouvement via historique des accélérations
+	private const int HISTORY_SIZE = 5;
+	private float[] _accelXHistory = new float[HISTORY_SIZE];
+	private float[] _accelYHistory = new float[HISTORY_SIZE];
+	private int _historyIndex = 0;
+	private bool _historyFilled = false;
 
-
+	// Gestion du son de roulement
 	private bool _isRolling = false;
-	private float _rollingSoundThreshold = 0.8f; // Vitesse minimale pour déclencher le son
+	private float _rollingSoundThreshold = 0.8f;
 	private float _lastSoundUpdateTime = 0f;
-	private const float SOUND_UPDATE_INTERVAL = 0.2f; // Intervalle pour mettre à jour le son (en secondes)
+	private const float SOUND_UPDATE_INTERVAL = 0.2f;
 
-
-	// Référence au gestionnaire Arduino
+	// Référence à l'ArduinoManager
 	private ArduinoManager _arduinoManager;
 	
-	// Variables pour le contrôle au clavier
+	// Variables pour le contrôle clavier
 	private Vector3 _inputDirection = Vector3.Zero;
+	private Vector3 _smoothedInputDirection = Vector3.Zero;
 	private bool _jumpRequested = false;
 	
-	// Référence à la caméra et au pivot
+	// Composants de caméra
 	private Camera3D _camera;
 	private Node3D _cameraFollowPivot;
 	
-	// Configuration de la caméra
+	// Configuration de la caméra 
 	[Export]
 	private Vector3 _cameraOffset = new Vector3(0, 10, 5);
 	[Export]
 	private Vector3 _cameraRotation = new Vector3(-60, 0, 0);
 	
-	// État de téléportation
+	// États de téléportation
 	private bool _isBeingTeleported = false;
 	private bool _teleportationCooldown = false;
-	private float _teleportCooldownTime = 1.0f; // 1 seconde de cooldown
+	private float _teleportCooldownTime = 1.0f;
 	private float _teleportCooldownTimer = 0.0f;
 	
-	// Matériaux pour différents états
+	// Matériaux pour différents états visuels
 	private StandardMaterial3D _normalMaterial;
 	private StandardMaterial3D _teleportMaterial;
 	
-	// Contrôles activés/désactivés
+	// État d'activation des contrôles
 	private bool _controlsEnabled = true;
 	
-	// Nouveau: Chemin vers le modèle de laine
+	// Modèle 3D de la balle
 	[Export]
 	private string _woolBallModelPath = "res://assets/ball of wool/yarn_ball.glb";
-	
-	// Noeud du modèle de laine
 	private Node3D _woolBallModel;
 	
+	// Variables pour la gestion de l'inclinaison
+	private float _tiltDuration = 0.0f;
+	private bool _wasTilted = false;
+
+	// Variables de débogage
+	private float _lastReportedSpeed = 0;
+	private float _speedReportTimer = 0;
+	
+	/**
+	 * Initialisation de la balle du joueur
+	 */
 	public override void _Ready()
 	{
-		// Configurer la physique
+		// Configuration physique
 		Mass = 3.0f;
 		CanSleep = false;
 		CustomIntegrator = false;
 		
-		// Configurer les collisions
+		// Configuration des collisions
 		CollisionLayer = 1;
 		CollisionMask = 1;
 		
-		// Nouveau: Charger le modèle de balle de laine
+		// Chargement du modèle 3D
 		LoadWoolBallModel();
 		
-		// Obtenir le pivot de suivi de caméra
+		// Configuration de la caméra
 		_cameraFollowPivot = GetNode<Node3D>("PlayerFollowPivot");
 		
-		// Déplacer la caméra du parent direct (PlayerBall) vers le pivot de suivi
 		_camera = GetNodeOrNull<Camera3D>("Camera3D");
 		if (_camera != null)
 		{
-			// Déplacer la caméra du PlayerBall au pivot
+			// Déplacer la caméra au pivot pour un suivi fluide
 			RemoveChild(_camera);
 			_cameraFollowPivot.AddChild(_camera);
 			
-			// Configurer la position et rotation de la caméra
 			_camera.Position = _cameraOffset;
 			_camera.RotationDegrees = _cameraRotation;
 			_camera.Current = true;
@@ -99,38 +129,40 @@ public partial class PlayerBall : RigidBody3D
 			GD.PrintErr("Caméra non trouvée sur le joueur!");
 		}
 		
-		// S'assurer que le RigidBody commence non-endormi
+		// Activer le corps rigide
 		Sleeping = false;
 		
-		// Créer les matériaux
+		// Créer les matériaux pour les différents états
 		CreateMaterials();
+		
+		// Initialiser l'historique des accélérations
+		for (int i = 0; i < HISTORY_SIZE; i++)
+		{
+			_accelXHistory[i] = 0;
+			_accelYHistory[i] = 0;
+		}
 	}
 	
-	// Nouvelle méthode pour charger le modèle de balle de laine
+	/**
+	 * Charge le modèle 3D de la balle de laine
+	 */
 	private void LoadWoolBallModel()
 	{
-		// Supprimer l'ancien MeshInstance3D s'il existe
+		// Supprimer l'ancien mesh s'il existe
 		var oldMesh = GetNodeOrNull<MeshInstance3D>("MeshInstance3D");
 		if (oldMesh != null)
 		{
 			oldMesh.QueueFree();
 		}
 		
-		// Charger le modèle 3D depuis le fichier .glb
+		// Charger le modèle 3D
 		var packedScene = GD.Load<PackedScene>(_woolBallModelPath);
 		if (packedScene != null)
 		{
-			// Instancier la scène
 			_woolBallModel = packedScene.Instantiate<Node3D>();
-			
-			// Ajuster l'échelle si nécessaire
 			_woolBallModel.Scale = new Vector3(0.5f, 0.5f, 0.5f);
-			
-			// Ajouter le modèle comme enfant
-			AddChild(_woolBallModel);
-			
-			// Renommer pour faciliter les références
 			_woolBallModel.Name = "WoolBallModel";
+			AddChild(_woolBallModel);
 			
 			GD.Print("Modèle de balle de laine chargé avec succès");
 		}
@@ -138,7 +170,7 @@ public partial class PlayerBall : RigidBody3D
 		{
 			GD.PrintErr($"Erreur lors du chargement du modèle: {_woolBallModelPath}");
 			
-			// En cas d'échec, créer un MeshInstance3D avec un SphereMesh comme fallback
+			// Créer un mesh de fallback
 			var meshInstance = new MeshInstance3D();
 			meshInstance.Name = "MeshInstance3D";
 			meshInstance.Mesh = new SphereMesh();
@@ -148,22 +180,26 @@ public partial class PlayerBall : RigidBody3D
 		}
 	}
 	
-	// Mise à jour pour le suivi de caméra
+	/**
+	 * Mise à jour visuelle et son par frame
+	 */
 	public override void _Process(double delta)
 	{
-		// Mettre à jour le pivot de la caméra pour qu'il suive la position de la balle 
-		// mais conserve une orientation fixe
+		// Mise à jour des timers
+		_lastSoundUpdateTime += (float)delta;
+		_speedReportTimer += (float)delta;
+		
+		// Mise à jour du pivot de la caméra pour suivi fluide
 		if (_cameraFollowPivot != null)
 		{
-			// Le pivot suit la position de la balle, mais garde une rotation indépendante
 			_cameraFollowPivot.GlobalPosition = GlobalPosition;
-			_cameraFollowPivot.GlobalRotation = Vector3.Zero; // Réinitialiser la rotation pour qu'elle reste fixe
+			_cameraFollowPivot.GlobalRotation = Vector3.Zero; // Maintient une orientation fixe
 		}
 		
-		// Faire tourner la balle de laine quand elle se déplace
+		// Animation de rotation de la balle selon le mouvement
 		RotateWoolBall(delta);
 		
-		// Gérer le son de roulement
+		// Gestion du son de roulement
 		if (_lastSoundUpdateTime >= SOUND_UPDATE_INTERVAL)
 		{
 			UpdateRollingSound();
@@ -180,11 +216,26 @@ public partial class PlayerBall : RigidBody3D
 				_teleportCooldownTimer = 0.0f;
 			}
 		}
+		
+		// Débogage de la vitesse (périodique)
+		if (_speedReportTimer >= 1.0f)
+		{
+			float currentSpeed = LinearVelocity.Length();
+			if (Math.Abs(currentSpeed - _lastReportedSpeed) > 0.5f)
+			{
+				GD.Print($"Vitesse actuelle: {currentSpeed:F2}, Direction: {_inputDirection.Length():F2}, Amplification: {_currentAmplification:F1}");
+				_lastReportedSpeed = currentSpeed;
+			}
+			_speedReportTimer = 0;
+		}
 	}
 	
+	/**
+	 * Gère le son de roulement de la balle selon sa vitesse
+	 */
 	private void UpdateRollingSound()
 	{
-		// Ne pas gérer le son si les contrôles sont désactivés ou si la balle est téléportée
+		// Désactiver le son si contrôles inactifs ou en téléportation
 		if (!_controlsEnabled || _isBeingTeleported) 
 		{
 			if (_isRolling)
@@ -194,33 +245,32 @@ public partial class PlayerBall : RigidBody3D
 			return;
 		}
 		
-		// Vérifier si la pelote roule suffisamment vite pour émettre un son
+		// Vérification de la vitesse pour l'émission du son
 		float speed = LinearVelocity.Length();
 		
-		// Démarrer le son si la vitesse dépasse le seuil et que le son n'est pas déjà en cours
 		if (speed > _rollingSoundThreshold && !_isRolling)
 		{
 			StartRollingSound(speed);
 		}
-		// Arrêter le son si la vitesse est trop faible et que le son est en cours
 		else if (speed <= _rollingSoundThreshold * 0.5f && _isRolling)
 		{
 			StopRollingSound();
 		}
-		// Mettre à jour le son si déjà en cours (pour ajuster le volume/pitch en fonction de la vitesse)
 		else if (_isRolling && speed > _rollingSoundThreshold)
 		{
 			UpdateRollingSoundParameters(speed);
 		}
 	}
-
-	// Nouvelle méthode pour démarrer le son de roulement
+	
+	/**
+	 * Démarre le son de roulement de la balle
+	 */
 	private void StartRollingSound(float speed)
 	{
 		if (AudioManager.Instance != null) {
-			AudioManager.Instance.PlaySound3D("RollingBall", this);
+			AudioManager.Instance.PlayLoopingSound3D("RollingBall", this);
 			
-			// Ajuster les paramètres en fonction de la vitesse
+			// Ajustement des paramètres selon la vitesse
 			float speedFactor = Mathf.Clamp(speed / 10f, 0.5f, 2.0f);
 			AudioManager.Instance.SetGlobalParameter("Speed", speedFactor);
 			
@@ -228,9 +278,10 @@ public partial class PlayerBall : RigidBody3D
 			GD.Print($"Son de roulement démarré - Vitesse: {speed:F2}");
 		}
 	}
-
-
-	// Nouvelle méthode pour mettre à jour les paramètres du son de roulement
+	
+	/**
+	 * Met à jour les paramètres du son de roulement
+	 */
 	private void UpdateRollingSoundParameters(float speed)
 	{
 		if (AudioManager.Instance != null) {
@@ -238,94 +289,95 @@ public partial class PlayerBall : RigidBody3D
 			AudioManager.Instance.SetGlobalParameter("Speed", speedFactor);
 		}
 	}
-
-
-	// Nouvelle méthode pour arrêter le son de roulement
+	
+	/**
+	 * Arrête le son de roulement
+	 */
 	private void StopRollingSound()
 	{
-		// Marquer le son comme arrêté
-		_isRolling = false;
-		GD.Print("Son de roulement arrêté");
-		
-		// Note: L'arrêt effectif dépend de l'implémentation de FMOD
-		// Il pourrait être nécessaire d'ajouter une méthode spécifique pour arrêter le son
+		if (AudioManager.Instance != null && _isRolling) {
+			AudioManager.Instance.StopLoopingSound("RollingBall");
+			_isRolling = false;
+			GD.Print("Son de roulement arrêté");
+		}
 	}
-
-
-
-	// Nouvelle méthode pour faire tourner la balle de laine en fonction du mouvement
+	
+	/**
+	 * Anime la rotation de la balle de laine selon son mouvement
+	 */
 	private void RotateWoolBall(double delta)
 	{
 		if (_woolBallModel != null && LinearVelocity.Length() > 0.1f)
 		{
-			// Calculer la rotation en fonction de la vitesse et de la direction
+			// Calcul de l'axe de rotation perpendiculaire au mouvement
 			Vector3 rotationAxis = Vector3.Up.Cross(LinearVelocity.Normalized());
 			
-			// Vérifier que l'axe de rotation n'est pas un vecteur nul (évite l'erreur de normalisation)
 			if (rotationAxis.LengthSquared() > 0.001f)
 			{
 				float rotationSpeed = LinearVelocity.Length() * 0.5f;
 				
-				// Normaliser l'axe de rotation et appliquer la rotation
 				rotationAxis = rotationAxis.Normalized();
 				_woolBallModel.Rotate(rotationAxis, rotationSpeed * (float)delta);
 			}
 			else
 			{
-				// Si l'axe est presque nul (mouvement vertical), faire une rotation simple autour de l'axe Z
+				// Rotation autour de l'axe Z si mouvement vertical
 				_woolBallModel.Rotate(Vector3.Forward, LinearVelocity.Length() * 0.2f * (float)delta);
 			}
 		}
 	}
-
 	
+	/**
+	 * Crée les matériaux pour les différents états visuels
+	 */
 	private void CreateMaterials()
 	{
-		// Matériau normal (état par défaut)
+		// Matériau état normal
 		_normalMaterial = new StandardMaterial3D();
-		_normalMaterial.AlbedoColor = new Color(0.2f, 0.6f, 1.0f); // Bleu
+		_normalMaterial.AlbedoColor = new Color(0.2f, 0.6f, 1.0f);
 		_normalMaterial.Metallic = 0.7f;
 		_normalMaterial.Roughness = 0.2f;
 		
-		// Matériau de téléportation (lors des transitions)
+		// Matériau téléportation
 		_teleportMaterial = new StandardMaterial3D();
-		_teleportMaterial.AlbedoColor = new Color(1.0f, 0.5f, 1.0f); // Rose
+		_teleportMaterial.AlbedoColor = new Color(1.0f, 0.5f, 1.0f);
 		_teleportMaterial.EmissionEnabled = true;
 		_teleportMaterial.Emission = new Color(0.5f, 0.2f, 0.5f);
-
-		// Appliquer le matériau normal au départ - Note: nous n'appliquons plus directement le matériau
-		// car nous utilisons maintenant un modèle GLB qui a son propre matériau
 	}
 	
-	
-	
+	/**
+	 * Convertit une direction d'entrée en direction relative à la caméra
+	 */
 	private Vector3 GetCameraRelativeDirection(Vector3 inputDir)
 	{
 		if (_camera == null || inputDir.LengthSquared() < 0.01f)
 			return inputDir;
 		
-		// Utiliser l'orientation du pivot de la caméra plutôt que celle de la caméra directement
+		// Utiliser l'orientation du pivot de caméra
 		Basis cameraBasis = _cameraFollowPivot.GlobalTransform.Basis;
 		Vector3 forward = -cameraBasis.Z;
-		forward.Y = 0; // Ignorer l'axe vertical
+		forward.Y = 0; // Ignorer la composante verticale
 		forward = forward.Normalized();
 		
 		Vector3 right = cameraBasis.X;
 		right.Y = 0;
 		right = right.Normalized();
 		
-		// Transformer la direction d'entrée par rapport à la caméra
-		// Nous n'avons plus besoin d'inverser l'axe Z ici car nous l'avons déjà fait dans ProcessInput
+		// Transformer la direction selon l'orientation de la caméra
 		return (forward * inputDir.Z + right * inputDir.X);
 	}
 	
+	/**
+	 * Vérifie si la balle est au sol
+	 */
 	private bool IsOnFloor()
 	{
-		// Vérifier si la balle touche le sol
 		return GetContactCount() > 0;
 	}
 	
-	// Appelé quand la téléportation commence
+	/**
+	 * Démarrage de la téléportation
+	 */
 	public void StartTeleporting()
 	{
 		if (_isBeingTeleported) return;
@@ -337,18 +389,17 @@ public partial class PlayerBall : RigidBody3D
 			StopRollingSound();
 		}
 
-		// Geler le corps physique pendant la téléportation
+		// Gèle le mouvement pendant la téléportation
 		Freeze = true;
 		
-		// Réinitialiser les vélocités pour éviter tout mouvement pendant la téléportation
+		// Réinitialisation des vélocités
 		LinearVelocity = Vector3.Zero;
 		AngularVelocity = Vector3.Zero;
 		
-		// Changer l'apparence pour montrer la téléportation
+		// Animation visuelle de la téléportation
 		var modelNode = GetNodeOrNull<Node3D>("WoolBallModel");
 		if (modelNode != null)
 		{
-			// Appliquer un effet visuel pour la téléportation (par exemple, faire scintiller)
 			var tween = CreateTween();
 			tween.SetEase(Tween.EaseType.InOut);
 			tween.TweenProperty(modelNode, "scale", new Vector3(0.6f, 0.6f, 0.6f), 0.3f);
@@ -356,39 +407,40 @@ public partial class PlayerBall : RigidBody3D
 			tween.SetLoops(3);
 		}
 		
-		// Ajouter un effet de particules pendant la téléportation
+		// Effet de particules
 		CreateTeleportParticles();
 	}
 	
-	// Appelé quand la téléportation est terminée
+	/**
+	 * Termine la téléportation
+	 */
 	public void FinishTeleporting()
 	{
-		// Réinitialiser la vélocité
+		// Réinitialisation physique
 		LinearVelocity = Vector3.Zero;
 		AngularVelocity = Vector3.Zero;
 		
-		// Dégeler le corps
+		// Dégel du corps
 		Freeze = false;
 		
-		// Revenir à l'apparence normale
+		// Restauration de l'apparence normale
 		var modelNode = GetNodeOrNull<Node3D>("WoolBallModel");
 		if (modelNode != null)
 		{
 			modelNode.Scale = new Vector3(0.5f, 0.5f, 0.5f);
 		}
 		
-		// Réactiver explicitement les contrôles
+		// Réactivation des contrôles
 		_controlsEnabled = true;
 		
-		// Réactiver le contrôle après un court délai
+		// Réinitialisation des états de téléportation
 		_isBeingTeleported = false;
-		_teleportationCooldown = false; // Désactiver le cooldown pour pouvoir contrôler immédiatement
+		_teleportationCooldown = false;
 		_teleportCooldownTimer = 0.0f;
 		
-		// S'assurer qu'Arduino est correctement configuré
+		// Vérification de la connexion Arduino
 		if (_useArduino && _arduinoManager == null)
 		{
-			// Essayer de retrouver l'ArduinoManager
 			_arduinoManager = GetTree().Root.FindChild("ArduinoManager", true, false) as ArduinoManager;
 			if (_arduinoManager != null)
 			{
@@ -399,13 +451,15 @@ public partial class PlayerBall : RigidBody3D
 		GD.Print("Téléportation terminée, contrôles réactivés");
 	}
 	
-	// Créer un effet de particules pour la téléportation
+	/**
+	 * Crée un effet de particules pour la téléportation
+	 */
 	private void CreateTeleportParticles()
 	{
 		var particles = new GpuParticles3D();
 		particles.Name = "TeleportParticles";
 		
-		// Configurer les particules
+		// Configuration du matériau des particules
 		var particlesMaterial = new ParticleProcessMaterial();
 		particlesMaterial.Direction = new Vector3(0, 1, 0);
 		particlesMaterial.Spread = 180.0f;
@@ -417,13 +471,13 @@ public partial class PlayerBall : RigidBody3D
 		
 		particles.ProcessMaterial = particlesMaterial;
 		
-		// Configurer le mesh pour les particules
+		// Mesh pour les particules
 		var sphereMesh = new SphereMesh();
 		sphereMesh.Radius = 0.1f;
 		sphereMesh.Height = 0.2f;
 		particles.DrawPass1 = sphereMesh;
 		
-		// Configurer les paramètres d'émission
+		// Paramètres d'émission
 		particles.Amount = 50;
 		particles.Lifetime = 1.0f;
 		particles.OneShot = true;
@@ -432,7 +486,7 @@ public partial class PlayerBall : RigidBody3D
 		AddChild(particles);
 		particles.Emitting = true;
 		
-		// Supprimer les particules après la fin de l'émission
+		// Nettoyage automatique des particules
 		var timer = new Timer();
 		timer.WaitTime = 2.0f;
 		timer.OneShot = true;
@@ -444,145 +498,268 @@ public partial class PlayerBall : RigidBody3D
 		timer.Start();
 	}
 
+	/**
+	 * Traitement des entrées utilisateur (Arduino ou clavier)
+	 */
 	private void ProcessInput()
 	{
-		// Toujours essayer d'utiliser le singleton ArduinoManager
+		// Utiliser l'instance singleton d'ArduinoManager
 		_arduinoManager = ArduinoManager.Instance;
 		
 		if (_useArduino && _arduinoManager != null)
 		{
 			try {
-				// Utiliser les données de l'Arduino
-				float accelX = _arduinoManager.GetAccelX() * 3.0f;  // Amplification simple
-				float accelY = _arduinoManager.GetAccelY() * 3.0f;  // Amplification simple
+				// Lecture des données du gyroscope Arduino
+				float accelX = _arduinoManager.GetAccelX();
+				float accelY = _arduinoManager.GetAccelY();
 				
-				// Appliquer un seuil minimum pour éviter les micro-mouvements
-				if (Math.Abs(accelX) < 0.08f) accelX = 0;
-				if (Math.Abs(accelY) < 0.08f) accelY = 0;
+				// Mise à jour de l'historique pour lissage
+				_accelXHistory[_historyIndex] = accelX;
+				_accelYHistory[_historyIndex] = accelY;
+				_historyIndex = (_historyIndex + 1) % HISTORY_SIZE;
 				
-				// Utiliser les données du gyroscope
-				_inputDirection = new Vector3(
-					accelX,
-					0,
-					-accelY  // Inversion pour corriger la direction
-				);
-				
-				// Log diagnostic pour voir les valeurs
-				if (Engine.GetProcessFrames() % 60 == 0)
-				{
-					GD.Print($"Valeurs Arduino: X={accelX:F2}, Y={accelY:F2}");
+				if (_historyIndex == 0) {
+					_historyFilled = true;
 				}
 				
-				// Vérifier si un saut est détecté par l'Arduino
-				if (_arduinoManager.IsJumpDetected())
-				{
+				// Lissage des valeurs d'accélération
+				float smoothedX = 0;
+				float smoothedY = 0;
+				int samplesCount = _historyFilled ? HISTORY_SIZE : _historyIndex;
+				
+				if (samplesCount > 0) {
+					for (int i = 0; i < samplesCount; i++) {
+						smoothedX += _accelXHistory[i];
+						smoothedY += _accelYHistory[i];
+					}
+					smoothedX /= samplesCount;
+					smoothedY /= samplesCount;
+				}
+				
+				// Amplification initiale pour meilleure sensibilité
+				smoothedX *= 1.2f;
+				smoothedY *= 1.2f;
+				
+				// Détection d'inclinaison significative
+				bool isTilted = (Mathf.Abs(smoothedX) > DIRECTION_THRESHOLD || Mathf.Abs(smoothedY) > DIRECTION_THRESHOLD);
+				
+				// Gestion de l'amplification progressive du mouvement
+				if (isTilted) {
+					if (!_wasTilted) {
+						// Démarrage d'une nouvelle inclinaison
+						_wasTilted = true;
+						_tiltDuration = 0.0f;
+					} else {
+						// Inclinaison maintenue, augmentation progressive de l'amplification
+						_tiltDuration += 0.016f;
+						_currentAmplification = Mathf.Min(MAX_AMPLIFICATION, 
+														 MIN_AMPLIFICATION + (_tiltDuration * AMPLIFICATION_RATE));
+					}
+					
+					// Calcul de la direction 
+					Vector3 currentDirection = new Vector3(smoothedX, 0, -smoothedY);
+					
+					if (currentDirection.LengthSquared() > 0.0001f) {
+						_lastSignificantDirection = currentDirection.Normalized() * currentDirection.Length() * _currentAmplification;
+					}
+					
+					_inputDirection = _lastSignificantDirection;
+				} else {
+					// Fin d'inclinaison, persistance de direction
+					if (_wasTilted) {
+						_wasTilted = false;
+						_inputDirection = _lastSignificantDirection * _directionPersistence;
+					} else {
+						// Décélération progressive
+						_inputDirection = _inputDirection * (_directionPersistence - DECELERATION_RATE);
+						
+						// Réinitialisation si la direction devient négligeable
+						if (_inputDirection.LengthSquared() < DIRECTION_THRESHOLD * DIRECTION_THRESHOLD) {
+							_inputDirection = Vector3.Zero;
+							_lastSignificantDirection = Vector3.Zero;
+							_currentAmplification = MIN_AMPLIFICATION;
+						}
+					}
+				}
+				
+				// Lissage de la transition entre directions
+				_smoothedInputDirection = _smoothedInputDirection.Lerp(_inputDirection, 0.2f);
+				_inputDirection = _smoothedInputDirection;
+				
+				// Diagnostic périodique
+				if (Engine.GetProcessFrames() % 60 == 0) {
+					GD.Print($"Gyro: X={smoothedX:F2}, Y={smoothedY:F2}, Amplification={_currentAmplification:F1}, Tilt={_tiltDuration:F1}s");
+				}
+				
+				// Détection de saut depuis Arduino
+				if (_arduinoManager.IsJumpDetected()) {
 					_jumpRequested = true;
 					GD.Print("Saut via Arduino détecté");
 				}
 			}
 			catch {
-				// Si une erreur se produit, utiliser les contrôles clavier
-				// Suppression de la variable 'e' non utilisée
+				// En cas d'erreur, fallback sur les contrôles clavier
 				ProcessKeyboardInput();
 			}
 		}
-		else
-		{
-			// Utiliser les contrôles clavier par défaut
+		else {
+			// Utilisation des contrôles clavier
 			ProcessKeyboardInput();
 		}
 	}
-	// Override de _PhysicsProcess pour rendre le mouvement plus dynamique
-	public override void _PhysicsProcess(double delta)
-	{
-		// Si les contrôles sont désactivés, sortir
-		if (!_controlsEnabled || _isBeingTeleported || _teleportationCooldown)
-		{
+	
+	/**
+	 * Traitement des entrées clavier comme fallback
+	 */
+	private void ProcessKeyboardInput() {
+		Vector3 rawDirection = Vector3.Zero;
+		
+		// Lecture des touches directionnelles
+		if (Input.IsActionPressed("ui_right")) {
+			rawDirection.X += 1;
+		}
+		if (Input.IsActionPressed("ui_left")) {
+			rawDirection.X -= 1;
+		}
+		if (Input.IsActionPressed("ui_down")) {
+			rawDirection.Z += 1;
+		}
+		if (Input.IsActionPressed("ui_up")) {
+			rawDirection.Z -= 1;
+		}
+		
+		// Normalisation et traitement similaire à l'accéléromètre
+		if (rawDirection.LengthSquared() > 0.01f) {
+			rawDirection = rawDirection.Normalized();
+			
+			// Simulation d'amplification progressive
+			if (!_wasTilted) {
+				_wasTilted = true;
+				_tiltDuration = 0.0f;
+			} else {
+				_tiltDuration += 0.016f;
+				_currentAmplification = Mathf.Min(MAX_AMPLIFICATION, 
+												MIN_AMPLIFICATION + (_tiltDuration * AMPLIFICATION_RATE));
+			}
+			
+			_lastSignificantDirection = rawDirection * _currentAmplification;
+			_inputDirection = _lastSignificantDirection;
+		} else {
+			// Gestion de la persistance de direction
+			if (_wasTilted) {
+				_wasTilted = false;
+				_inputDirection = _lastSignificantDirection * _directionPersistence;
+			} else {
+				_inputDirection = _inputDirection * (_directionPersistence - DECELERATION_RATE);
+				
+				if (_inputDirection.LengthSquared() < DIRECTION_THRESHOLD * DIRECTION_THRESHOLD) {
+					_inputDirection = Vector3.Zero;
+					_lastSignificantDirection = Vector3.Zero;
+					_currentAmplification = MIN_AMPLIFICATION;
+				}
+			}
+		}
+		
+		// Lissage de la transition entre directions
+		_smoothedInputDirection = _smoothedInputDirection.Lerp(_inputDirection, 0.2f);
+		_inputDirection = _smoothedInputDirection;
+		
+		// Détection de saut via touche espace
+		if (Input.IsActionJustPressed("ui_accept")) {
+			_jumpRequested = true;
+		}
+	}
+	
+	/**
+	 * Mise à jour physique du mouvement de la balle
+	 */
+	public override void _PhysicsProcess(double delta) {
+		// Sortir si les contrôles sont désactivés
+		if (!_controlsEnabled || _isBeingTeleported || _teleportationCooldown) {
 			return;
 		}
 		
-		// Récupérer les entrées (incluant la persistance)
+		// Traitement des entrées
 		ProcessInput();
 		
-		// Convertir la direction en fonction de la caméra
+		// Conversion de la direction selon l'orientation de la caméra
 		Vector3 cameraRelativeDirection = GetCameraRelativeDirection(_inputDirection);
 		
-		// NOUVEAU: Boost d'accélération dynamique
-		float accelerationBoost = 1.0f;
-		
-		// Si on a une direction significative
-		if (cameraRelativeDirection.LengthSquared() > 0.01f)
-		{
-			// Boost d'accélération pour démarrer plus rapidement
-			float speed = LinearVelocity.Length();
-			if (speed < 5.0f)
-			{
-				accelerationBoost = 2.0f; // Boost de démarrage
+		// Application des forces de mouvement
+		if (cameraRelativeDirection.LengthSquared() > 0.01f) {
+			// Force proportionnelle à l'intensité de la direction
+			Vector3 forceVector = cameraRelativeDirection.Normalized() * _moveForce * cameraRelativeDirection.Length();
+			
+			ApplyCentralForce(forceVector);
+			
+			// Limitation de la vitesse maximum
+			if (LinearVelocity.Length() > MAX_VELOCITY) {
+				LinearVelocity = LinearVelocity.Normalized() * MAX_VELOCITY;
 			}
-			
-			// NOUVEAU: Force proportionnelle à la magnitude de la direction
-			float magnitude = cameraRelativeDirection.Length();
-			float forceMagnitude = _moveForce * magnitude * accelerationBoost;
-			
-			// Appliquer la force de mouvement
-			ApplyCentralForce(cameraRelativeDirection.Normalized() * forceMagnitude);
-		}
-		else if (LinearVelocity.LengthSquared() > 0.1f)
-		{
-			// Freinage progressif (beaucoup plus lent)
-			Vector3 brakeForce = -LinearVelocity.Normalized() * _moveForce * 0.2f;
+		} else if (LinearVelocity.LengthSquared() > 0.1f) {
+			// Force de freinage naturel
+			Vector3 brakeForce = -LinearVelocity.Normalized() * _moveForce * 0.1f;
 			ApplyCentralForce(brakeForce);
 		}
 		
 		// Gestion du saut
-		if (_jumpRequested && IsOnFloor())
-		{
+		if (_jumpRequested && IsOnFloor()) {
 			ApplyCentralImpulse(Vector3.Up * _jumpForce);
 			_jumpRequested = false;
 		}
 	}
 	
-	// Pour réinitialiser complètement l'état y compris le mouvement persistant
-	public void ResetState()
-	{
-		// Réinitialiser les états
+	/**
+	 * Réinitialise complètement l'état de la balle
+	 */
+	public void ResetState() {
+		// Réinitialisation du mouvement
 		_lastSignificantDirection = Vector3.Zero;
 		_inputDirection = Vector3.Zero;
+		_smoothedInputDirection = Vector3.Zero;
 		_jumpRequested = false;
+		_tiltDuration = 0.0f;
+		_wasTilted = false;
+		_currentAmplification = MIN_AMPLIFICATION;
 		
-		// Réinitialiser la physique
+		// Réinitialisation de la physique
 		Freeze = false;
 		LinearVelocity = Vector3.Zero;
 		AngularVelocity = Vector3.Zero;
 		
-		// Réinitialiser les états de téléportation
+		// Réinitialisation des états de téléportation
 		_isBeingTeleported = false;
 		_teleportationCooldown = false;
-		if (_isRolling)
-		{
+		if (_isRolling) {
 			StopRollingSound();
 		}
 
-		// S'assurer que les contrôles sont activés
+		// Activation des contrôles
 		_controlsEnabled = true;
+		
+		// Réinitialisation de l'historique des accélérations
+		for (int i = 0; i < HISTORY_SIZE; i++) {
+			_accelXHistory[i] = 0;
+			_accelYHistory[i] = 0;
+		}
+		_historyIndex = 0;
+		_historyFilled = false;
 		
 		GD.Print("État du PlayerBall complètement réinitialisé");
 	}
 	
-	
-	// Méthode SetArduinoManager modifiée pour garantir la connexion
-	public void SetArduinoManager(ArduinoManager manager)
-	{
-		if (manager == null)
-		{
+	/**
+	 * Définit l'instance d'ArduinoManager à utiliser
+	 */
+	public void SetArduinoManager(ArduinoManager manager) {
+		if (manager == null) {
 			GD.PrintErr("ERREUR: Tentative de définir un ArduinoManager null!");
-			// Essayer de retrouver le singleton
+			// Tentative de récupération du singleton
 			manager = ArduinoManager.Instance;
-			if (manager == null)
-			{
+			if (manager == null) {
 				GD.PrintErr("ERREUR GRAVE: Impossible de trouver ArduinoManager.Instance!");
 				
-				// Dernier recours - créer une nouvelle instance
+				// Création d'une instance d'urgence
 				manager = new ArduinoManager();
 				manager.Name = "ArduinoManagerEmergency";
 				GetTree().Root.AddChild(manager);
@@ -590,14 +767,14 @@ public partial class PlayerBall : RigidBody3D
 			}
 		}
 		
-		// Stocker la référence explicite
+		// Stockage de la référence
 		_arduinoManager = manager;
 		_useArduino = true;
 		
-		// Diagnostiquer l'état
+		// Diagnostic de la connexion
 		GD.Print($"PlayerBall configuré pour utiliser ArduinoManager (référence directe: {_arduinoManager != null}, singleton: {ArduinoManager.Instance != null})");
 		
-		// NOUVEAU: Diagnostic pour vérifier la communication
+		// Test de communication
 		try {
 			float testX = _arduinoManager.GetAccelX();
 			float testY = _arduinoManager.GetAccelY();
@@ -606,100 +783,66 @@ public partial class PlayerBall : RigidBody3D
 			GD.PrintErr($"ALERTE: Communication Arduino impossible: {e.Message}");
 		}
 	}
-	// NOUVELLE MÉTHODE: Séparation de la gestion des entrées clavier
-	private void ProcessKeyboardInput()
-	{
-		_inputDirection = Vector3.Zero;
-		
-		if (Input.IsActionPressed("ui_right"))
-		{
-			_inputDirection.X += 1;
-		}
-		if (Input.IsActionPressed("ui_left"))
-		{
-			_inputDirection.X -= 1;
-		}
-		if (Input.IsActionPressed("ui_down"))
-		{
-			_inputDirection.Z += 1;
-		}
-		if (Input.IsActionPressed("ui_up"))
-		{
-			_inputDirection.Z -= 1;
-		}
-		
-		// Normaliser pour éviter une vitesse plus rapide en diagonale
-		if (_inputDirection.LengthSquared() > 0.01f)
-		{
-			_inputDirection = _inputDirection.Normalized();
-		}
-		
-		// Détecter une demande de saut
-		if (Input.IsActionJustPressed("ui_accept"))
-		{
-			_jumpRequested = true;
-		}
-	}
-
-	// Ajouter cette méthode pour forcer la reconnexion avec l'Arduino
-	public void ForceReconnectArduino()
-	{
-		// Priorité à l'instance singleton
+	
+	/**
+	 * Force la reconnexion avec l'Arduino
+	 * Utilisé en cas de problème de connexion
+	 */
+	public void ForceReconnectArduino() {
+		// Recherche de l'instance d'ArduinoManager
 		_arduinoManager = ArduinoManager.Instance;
 		
-		// Si toujours null, essayer de le trouver dans l'arbre
-		if (_arduinoManager == null)
-		{
+		if (_arduinoManager == null) {
 			_arduinoManager = GetTree().Root.FindChild("ArduinoManager", true, false) as ArduinoManager;
 		}
 		
-		// Dernier recours: vérification dans les enfants directs de Root
-		if (_arduinoManager == null)
-		{
-			foreach (Node child in GetTree().Root.GetChildren())
-			{
-				if (child is ArduinoManager arduino)
-				{
+		if (_arduinoManager == null) {
+			foreach (Node child in GetTree().Root.GetChildren()) {
+				if (child is ArduinoManager arduino) {
 					_arduinoManager = arduino;
 					break;
 				}
 			}
 		}
 		
-		if (_arduinoManager != null)
-		{
+		if (_arduinoManager != null) {
 			_useArduino = true;
 			GD.Print("Force reconnexion à ArduinoManager réussie");
 			
-			// Réinitialiser les états de mouvement
+			// Réinitialisation des états de mouvement
 			_inputDirection = Vector3.Zero;
+			_smoothedInputDirection = Vector3.Zero;
 			_jumpRequested = false;
-		}
-		else
-		{
+		} else {
 			_useArduino = false;
 			GD.PrintErr("Force reconnexion à ArduinoManager échouée - contrôles clavier activés");
 		}
 		
-		// Réinitialiser les états importants
+		// Réinitialisation des états importants
 		_controlsEnabled = true;
 		_isBeingTeleported = false;
 		_teleportationCooldown = false;
 		
-		// Réinitialiser la physique
+		// Réinitialisation de la physique
 		LinearVelocity = Vector3.Zero;
 		AngularVelocity = Vector3.Zero;
 	}
 	
-	// Désactiver les contrôles (utile pour la fin du jeu)
-	public void DisableControls()
-	{
+	/**
+	 * Désactive les contrôles du joueur
+	 */
+	public void DisableControls() {
 		_controlsEnabled = false;
+		
+		if (_isRolling) {
+			StopRollingSound();
+		}
 	}
 	
-	// Réactiver les contrôles
-	public void EnableControls()
-	{
+	/**
+	 * Réactive les contrôles du joueur
+	 */
+	public void EnableControls() {
 		_controlsEnabled = true;
 	}
 }

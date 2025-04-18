@@ -10,3 +10,8 @@ _playerBallScene = ExtResource("2_c6dvc")
 
 [node name="AudioManager" type="Node" parent="."]
 script = ExtResource("3_c6dvc")
+
+[node name="FmodBankLoader2" type="FmodBankLoader" parent="."]
+bank_paths = ["res://addons/fmod/Banks/Desktop/Master.strings.bank", "res://addons/fmod/Banks/Desktop/Master.bank"]
+
+[node name="FmodListener3D" type="FmodListener3D" parent="."]

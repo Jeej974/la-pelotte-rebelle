@@ -37,6 +37,7 @@ config/icon="res://icon.svg"
 
 ScoreManager="*res://scripts/ScoreManager.cs"
 AudioManager="*res://scripts/AudioManager.cs"
+FmodManager="*res://addons/fmod/FmodManager.gd"
 
 [dotnet]
 
