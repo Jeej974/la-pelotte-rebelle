@@ -14,7 +14,7 @@ using System.Threading;
 public partial class ArduinoManager : Node
 {
 	// Configuration de la communication série
-	private const string PORT_NAME = "COM5";
+	private const string PORT_NAME = "COM3";
 	private const int BAUD_RATE = 9600;
 	
 	// Implémentation du pattern Singleton

@@ -1379,7 +1379,7 @@ public partial class VerticalMazeGenerator : Node3D
 		if (mainScene != null)
 		{
 			// Calcul du temps bonus selon le niveau
-			int bonusTime = 30 + (mazeIndex * 5);
+			int bonusTime = 5 + (mazeIndex * 2);
 			
 			// Ajout du temps
 			mainScene.Call("AddTime", bonusTime);

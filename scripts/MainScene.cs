@@ -159,7 +159,7 @@ public partial class MainScene : Node3D
 		{
 			// Écran d'attente au redémarrage normal
 			_gameState = GameState.WaitingToStart;
-			AddCenteredMessage("APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER", new Color(1, 1, 0), 36);
+			AddCenteredMessage("APPUYEZ SUR LE BOUTON POUR COMMENCER", new Color(1, 1, 0), 36);
 		}
 		else
 		{
@@ -500,7 +500,7 @@ public partial class MainScene : Node3D
 		_highScorePanel.Name = "HighScorePanel";
 		_highScorePanel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
 		_highScorePanel.Size = new Vector2(300, 180);
-		_highScorePanel.Position = new Vector2(-300, 240); // Sous le panneau UI principal
+		_highScorePanel.Position = new Vector2(-1150, 0); // Sous le panneau UI principal
 		_scoreCanvas.AddChild(_highScorePanel);
 		
 		// Titre du panneau
@@ -570,7 +570,7 @@ public partial class MainScene : Node3D
 		if (_loadingDotsLabel != null)
 			_loadingDotsLabel.QueueFree();
 		
-		AddCenteredMessage("APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER", new Color(1, 1, 0), 36);
+		AddCenteredMessage("APPUYEZ SUR LE BOUTON POUR COMMENCER", new Color(1, 1, 0), 36);
 	}
 	
 	/**
@@ -614,13 +614,13 @@ public partial class MainScene : Node3D
 		// Panneau principal d'UI
 		_uiPanel = new Panel();
 		_uiPanel.SetAnchorsPreset(Control.LayoutPreset.TopRight);
-		_uiPanel.Size = new Vector2(300, 220);
-		_uiPanel.Position = new Vector2(-300, 0);
+		_uiPanel.Size = new Vector2(310, 190);
+		_uiPanel.Position = new Vector2(-310, 0);
 		_uiCanvas.AddChild(_uiPanel);
 		
 		// Label d'informations générales
 		_infoLabel = new Label();
-		_infoLabel.Text = "Utilisez les flèches ou l'Arduino pour déplacer la balle";
+		_infoLabel.Text = "Bouge la manette pour te déplacer ";
 		_infoLabel.Position = new Vector2(10, 10);
 		_infoLabel.Size = new Vector2(280, 40);
 		_infoLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
@@ -1506,7 +1506,7 @@ public partial class MainScene : Node3D
 			else
 			{
 				_gameState = GameState.WaitingToStart;
-				AddCenteredMessage("APPUYEZ SUR LE BOUTON ARDUINO POUR COMMENCER", new Color(1, 1, 0), 36);
+				AddCenteredMessage("APPUYEZ SUR LE BOUTON POUR COMMENCER", new Color(1, 1, 0), 36);
 			}
 			
 			GD.Print($"Jeu réinitialisé et prêt à démarrer, état: {_gameState}");
